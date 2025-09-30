@@ -1,241 +1,193 @@
 """
-LLM integration service for FitConnect Backend
-Supports OpenAI GPT and Anthropic Claude
+Pure Python LLM service - 완전 독립적인 AI 모듈
+OpenAI, Anthropic 등 LLM 통합 서비스
 """
 
 import logging
-from typing import Dict, List, Optional, Tuple, Any
+import json
+from typing import Dict, List, Optional, Any, Union
 from enum import Enum
+from dataclasses import dataclass
+import os
 
 import openai
 from openai import OpenAI
-import httpx
-from pydantic import BaseModel
-
-from config import get_settings
 
 logger = logging.getLogger(__name__)
-settings = get_settings()
 
 
 class LLMProvider(str, Enum):
-    """Supported LLM providers"""
+    """지원하는 LLM 프로바이더"""
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
 
 
-class ChatMessage(BaseModel):
-    """Chat message model"""
+@dataclass
+class ChatMessage:
+    """채팅 메시지"""
     role: str  # "system", "user", "assistant"
     content: str
 
 
-class LLMResponse(BaseModel):
-    """LLM response model"""
+@dataclass
+class LLMResponse:
+    """LLM 응답"""
     content: str
-    provider: LLMProvider
+    provider: str
     model: str
     usage: Dict[str, Any]
-    metadata: Dict[str, Any] = {}
+    metadata: Dict[str, Any] = None
+
+    def __post_init__(self):
+        if self.metadata is None:
+            self.metadata = {}
 
 
-class LLMService:
-    """LLM integration service"""
+class PureLLMService:
+    """순수 Python LLM 서비스"""
 
-    def __init__(self):
+    def __init__(self, openai_api_key: Optional[str] = None, anthropic_api_key: Optional[str] = None):
+        """
+        Args:
+            openai_api_key: OpenAI API 키 (None이면 환경변수에서)
+            anthropic_api_key: Anthropic API 키 (None이면 환경변수에서)
+        """
         self.openai_client = None
         self.anthropic_client = None
-        self._initialize_clients()
 
-    def _initialize_clients(self):
-        """Initialize LLM clients"""
-        # Initialize OpenAI client
-        if settings.OPENAI_API_KEY:
-            try:
-                self.openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        self._setup_openai(openai_api_key)
+        self._setup_anthropic(anthropic_api_key)
+
+    def _setup_openai(self, api_key: Optional[str] = None):
+        """OpenAI 클라이언트 설정"""
+        try:
+            key = api_key or os.getenv("OPENAI_API_KEY")
+            if key:
+                self.openai_client = OpenAI(api_key=key)
                 logger.info("OpenAI client initialized")
-            except Exception as e:
-                logger.warning(f"Failed to initialize OpenAI client: {e}")
+            else:
+                logger.warning("OpenAI API key not found")
+        except Exception as e:
+            logger.error(f"Failed to setup OpenAI client: {e}")
 
-        # Initialize Anthropic client (using httpx for API calls)
-        if settings.ANTHROPIC_API_KEY:
-            try:
-                self.anthropic_client = httpx.AsyncClient(
-                    headers={
-                        "x-api-key": settings.ANTHROPIC_API_KEY,
-                        "content-type": "application/json",
-                        "anthropic-version": "2023-06-01"
-                    },
-                    base_url="https://api.anthropic.com"
-                )
-                logger.info("Anthropic client initialized")
-            except Exception as e:
-                logger.warning(f"Failed to initialize Anthropic client: {e}")
+    def _setup_anthropic(self, api_key: Optional[str] = None):
+        """Anthropic 클라이언트 설정"""
+        try:
+            # Anthropic 클라이언트는 필요시 나중에 추가
+            key = api_key or os.getenv("ANTHROPIC_API_KEY")
+            if key:
+                logger.info("Anthropic API key available (client not implemented yet)")
+            else:
+                logger.warning("Anthropic API key not found")
+        except Exception as e:
+            logger.error(f"Failed to setup Anthropic client: {e}")
 
-    async def generate_completion(
+    def generate_completion(
         self,
-        messages: List[ChatMessage],
-        provider: LLMProvider = LLMProvider.OPENAI,
+        messages: List[Union[ChatMessage, Dict[str, str]]],
+        provider: str = "openai",
         model: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 1000,
         **kwargs
     ) -> LLMResponse:
         """
-        Generate completion using specified LLM provider
+        텍스트 생성
 
         Args:
-            messages: List of chat messages
-            provider: LLM provider to use
-            model: Model name (provider-specific)
-            temperature: Sampling temperature
-            max_tokens: Maximum tokens to generate
-            **kwargs: Additional provider-specific parameters
+            messages: 메시지 리스트
+            provider: LLM 프로바이더 ("openai", "anthropic")
+            model: 사용할 모델명
+            temperature: 창의성 조절 (0.0-1.0)
+            max_tokens: 최대 토큰 수
+            **kwargs: 추가 파라미터
 
         Returns:
-            LLMResponse object
+            LLMResponse 객체
         """
-        if provider == LLMProvider.OPENAI:
-            return await self._openai_completion(messages, model, temperature, max_tokens, **kwargs)
-        elif provider == LLMProvider.ANTHROPIC:
-            return await self._anthropic_completion(messages, model, temperature, max_tokens, **kwargs)
+        if provider == "openai":
+            return self._generate_openai(messages, model, temperature, max_tokens, **kwargs)
+        elif provider == "anthropic":
+            return self._generate_anthropic(messages, model, temperature, max_tokens, **kwargs)
         else:
             raise ValueError(f"Unsupported provider: {provider}")
 
-    async def _openai_completion(
+    def _generate_openai(
         self,
-        messages: List[ChatMessage],
+        messages: List[Union[ChatMessage, Dict[str, str]]],
         model: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 1000,
         **kwargs
     ) -> LLMResponse:
-        """Generate completion using OpenAI"""
+        """OpenAI 텍스트 생성"""
         if not self.openai_client:
-            raise ValueError("OpenAI client not initialized. Check API key.")
+            raise RuntimeError("OpenAI client not initialized")
 
-        if model is None:
-            model = "gpt-3.5-turbo"
+        # 메시지 형식 변환
+        formatted_messages = []
+        for msg in messages:
+            if isinstance(msg, ChatMessage):
+                formatted_messages.append({"role": msg.role, "content": msg.content})
+            elif isinstance(msg, dict):
+                formatted_messages.append(msg)
+            else:
+                raise TypeError(f"Invalid message type: {type(msg)}")
 
         try:
-            # Convert messages to OpenAI format
-            openai_messages = [
-                {"role": msg.role, "content": msg.content}
-                for msg in messages
-            ]
+            model_name = model or "gpt-4o"
 
             response = self.openai_client.chat.completions.create(
-                model=model,
-                messages=openai_messages,
+                model=model_name,
+                messages=formatted_messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
                 **kwargs
             )
 
-            return LLMResponse(
-                content=response.choices[0].message.content,
-                provider=LLMProvider.OPENAI,
-                model=model,
-                usage={
-                    "prompt_tokens": response.usage.prompt_tokens,
-                    "completion_tokens": response.usage.completion_tokens,
-                    "total_tokens": response.usage.total_tokens
-                },
-                metadata={
-                    "finish_reason": response.choices[0].finish_reason,
-                    "response_id": response.id
-                }
-            )
-
-        except Exception as e:
-            logger.error(f"OpenAI completion error: {e}")
-            raise ValueError(f"OpenAI completion failed: {str(e)}")
-
-    async def _anthropic_completion(
-        self,
-        messages: List[ChatMessage],
-        model: Optional[str] = None,
-        temperature: float = 0.7,
-        max_tokens: int = 1000,
-        **kwargs
-    ) -> LLMResponse:
-        """Generate completion using Anthropic Claude"""
-        if not self.anthropic_client:
-            raise ValueError("Anthropic client not initialized. Check API key.")
-
-        if model is None:
-            model = "claude-3-haiku-20240307"
-
-        try:
-            # Convert messages to Anthropic format
-            system_message = None
-            anthropic_messages = []
-
-            for msg in messages:
-                if msg.role == "system":
-                    system_message = msg.content
-                else:
-                    anthropic_messages.append({
-                        "role": msg.role,
-                        "content": msg.content
-                    })
-
-            payload = {
-                "model": model,
-                "max_tokens": max_tokens,
-                "temperature": temperature,
-                "messages": anthropic_messages,
-                **kwargs
+            usage = {
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens
             }
 
-            if system_message:
-                payload["system"] = system_message
-
-            response = await self.anthropic_client.post("/v1/messages", json=payload)
-            response.raise_for_status()
-
-            data = response.json()
-
             return LLMResponse(
-                content=data["content"][0]["text"],
-                provider=LLMProvider.ANTHROPIC,
-                model=model,
-                usage={
-                    "input_tokens": data["usage"]["input_tokens"],
-                    "output_tokens": data["usage"]["output_tokens"],
-                    "total_tokens": data["usage"]["input_tokens"] + data["usage"]["output_tokens"]
-                },
-                metadata={
-                    "stop_reason": data.get("stop_reason"),
-                    "response_id": data.get("id")
-                }
+                content=response.choices[0].message.content,
+                provider="openai",
+                model=model_name,
+                usage=usage,
+                metadata={"finish_reason": response.choices[0].finish_reason}
             )
 
         except Exception as e:
-            logger.error(f"Anthropic completion error: {e}")
-            raise ValueError(f"Anthropic completion failed: {str(e)}")
+            logger.error(f"OpenAI generation failed: {e}")
+            raise RuntimeError(f"OpenAI generation failed: {str(e)}")
 
-    async def analyze_candidate_profile(self, profile_text: str) -> Dict[str, Any]:
+    def _generate_anthropic(self, messages, model, temperature, max_tokens, **kwargs):
+        """Anthropic 텍스트 생성 (향후 구현)"""
+        raise NotImplementedError("Anthropic integration not implemented yet")
+
+    def analyze_candidate_profile(self, profile_text: str, **kwargs) -> Dict[str, Any]:
         """
-        Analyze candidate profile and extract key competencies
+        지원자 프로필 분석
 
         Args:
-            profile_text: Candidate profile text (resume, interview transcript, etc.)
+            profile_text: 지원자 프로필 텍스트
+            **kwargs: 추가 LLM 파라미터
 
         Returns:
-            Dictionary containing analyzed competencies and skills
+            분석 결과 딕셔너리
         """
         system_prompt = """
-        당신은 채용 전문가입니다. 제공된 지원자 프로필을 분석하여 핵심 역량을 추출하고 구조화해주세요.
+        당신은 채용 전문가입니다. 제공된 지원자 프로필을 분석하여 다음 항목들을 추출하고 구조화해주세요:
 
-        다음 항목들을 분석해주세요:
-        1. 기술 스킬 (Technical Skills)
-        2. 소프트 스킬 (Soft Skills)
-        3. 경력 레벨 (Experience Level)
-        4. 주요 성과 (Key Achievements)
-        5. 성장 잠재력 (Growth Potential)
+        1. 기술 스킬 (Technical Skills): 프로그래밍 언어, 프레임워크, 도구 등
+        2. 소프트 스킬 (Soft Skills): 커뮤니케이션, 리더십, 팀워크 등
+        3. 경력 레벨 (Experience Level): 신입, 주니어, 시니어 등
+        4. 전문 분야 (Expertise): 프론트엔드, 백엔드, 풀스택, 데이터 등
+        5. 성장 잠재력 (Growth Potential): 학습 의지, 적응력 등
 
-        결과는 JSON 형식으로 구조화해서 반환해주세요.
+        JSON 형식으로 구조화된 결과를 반환해주세요.
         """
 
         messages = [
@@ -244,92 +196,189 @@ class LLMService:
         ]
 
         try:
-            response = await self.generate_completion(
+            response = self.generate_completion(
                 messages=messages,
-                provider=LLMProvider.OPENAI,
-                model="gpt-3.5-turbo",
                 temperature=0.3,
-                max_tokens=1500
+                max_tokens=800,
+                **kwargs
             )
 
-            # Try to parse as JSON, fallback to text analysis
+            # JSON 파싱 시도
             try:
-                import json
                 analysis = json.loads(response.content)
             except json.JSONDecodeError:
-                analysis = {"analysis": response.content}
+                # JSON 파싱 실패시 텍스트 그대로 반환
+                analysis = {"raw_analysis": response.content}
 
             return analysis
 
         except Exception as e:
-            logger.error(f"Profile analysis error: {e}")
-            raise ValueError(f"Profile analysis failed: {str(e)}")
+            logger.error(f"Profile analysis failed: {e}")
+            return {"error": f"분석 중 오류 발생: {str(e)}"}
 
-    async def analyze_job_posting(self, job_posting_text: str) -> Dict[str, Any]:
+    def analyze_job_posting(self, job_text: str, **kwargs) -> Dict[str, Any]:
         """
-        Analyze job posting and extract requirements
+        채용 공고 분석
 
         Args:
-            job_posting_text: Job posting description
+            job_text: 채용 공고 텍스트
+            **kwargs: 추가 LLM 파라미터
 
         Returns:
-            Dictionary containing analyzed requirements and preferences
+            분석 결과 딕셔너리
         """
         system_prompt = """
-        당신은 채용 전문가입니다. 제공된 채용 공고를 분석하여 요구사항을 추출하고 구조화해주세요.
+        당신은 채용 컨설턴트입니다. 제공된 채용 공고를 분석하여 다음을 구조화해주세요:
 
-        다음 항목들을 분석해주세요:
-        1. 필수 기술 스킬 (Required Technical Skills)
-        2. 우대 기술 스킬 (Preferred Technical Skills)
+        1. 필수 기술 스킬 (Required Skills)
+        2. 우대 기술 스킬 (Preferred Skills)
         3. 경력 요구사항 (Experience Requirements)
-        4. 소프트 스킬 요구사항 (Soft Skills Requirements)
-        5. 회사 문화 및 환경 (Company Culture & Environment)
+        4. 업무 내용 (Job Responsibilities)
+        5. 회사 문화/혜택 (Company Culture & Benefits)
+        6. 근무 조건 (Work Conditions)
 
-        결과는 JSON 형식으로 구조화해서 반환해주세요.
+        JSON 형식으로 구조화된 결과를 반환해주세요.
         """
 
         messages = [
             ChatMessage(role="system", content=system_prompt),
-            ChatMessage(role="user", content=f"분석할 채용공고:\n{job_posting_text}")
+            ChatMessage(role="user", content=f"분석할 채용공고:\n{job_text}")
         ]
 
         try:
-            response = await self.generate_completion(
+            response = self.generate_completion(
                 messages=messages,
-                provider=LLMProvider.OPENAI,
-                model="gpt-3.5-turbo",
                 temperature=0.3,
-                max_tokens=1500
+                max_tokens=800,
+                **kwargs
             )
 
-            # Try to parse as JSON, fallback to text analysis
             try:
-                import json
                 analysis = json.loads(response.content)
             except json.JSONDecodeError:
-                analysis = {"analysis": response.content}
+                analysis = {"raw_analysis": response.content}
 
             return analysis
 
         except Exception as e:
-            logger.error(f"Job posting analysis error: {e}")
-            raise ValueError(f"Job posting analysis failed: {str(e)}")
+            logger.error(f"Job posting analysis failed: {e}")
+            return {"error": f"분석 중 오류 발생: {str(e)}"}
+
+    def generate_interview_questions(
+        self,
+        context: str,
+        question_count: int = 5,
+        interview_type: str = "general",
+        **kwargs
+    ) -> List[str]:
+        """
+        면접 질문 생성
+
+        Args:
+            context: 면접 맥락 (직무, 요구사항 등)
+            question_count: 생성할 질문 수
+            interview_type: 면접 유형 ("technical", "behavioral", "general")
+            **kwargs: 추가 LLM 파라미터
+
+        Returns:
+            질문 리스트
+        """
+        system_prompt = f"""
+        당신은 면접관입니다. 주어진 컨텍스트를 바탕으로 {interview_type} 면접 질문을 {question_count}개 생성해주세요.
+
+        질문 유형별 가이드라인:
+        - technical: 기술적 역량과 문제해결 능력을 평가하는 질문
+        - behavioral: 경험과 행동 패턴을 파악하는 질문
+        - general: 일반적인 적합성과 동기를 확인하는 질문
+
+        각 질문은 구체적이고 답변을 통해 의미있는 평가가 가능해야 합니다.
+        질문만 나열해주세요 (번호 포함).
+        """
+
+        messages = [
+            ChatMessage(role="system", content=system_prompt),
+            ChatMessage(role="user", content=f"컨텍스트:\n{context}")
+        ]
+
+        try:
+            response = self.generate_completion(
+                messages=messages,
+                temperature=0.8,
+                max_tokens=600,
+                **kwargs
+            )
+
+            # 질문들을 파싱
+            questions = []
+            lines = response.content.strip().split('\n')
+            for line in lines:
+                line = line.strip()
+                if line and (line[0].isdigit() or line.startswith('-')):
+                    # 번호나 불릿 포인트 제거
+                    question = line.lstrip('0123456789.- ').strip()
+                    if question:
+                        questions.append(question)
+
+            return questions[:question_count]
+
+        except Exception as e:
+            logger.error(f"Interview question generation failed: {e}")
+            return [f"질문 생성 중 오류가 발생했습니다: {str(e)}"]
+
+    def get_available_models(self, provider: str = "openai") -> List[str]:
+        """사용 가능한 모델 리스트"""
+        if provider == "openai":
+            return ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"]
+        elif provider == "anthropic":
+            return ["claude-3-5-sonnet-20241022", "claude-3-sonnet", "claude-3-opus"]
+        else:
+            return []
 
     def health_check(self) -> Dict[str, Any]:
-        """Check health status of LLM service"""
-        status = {
-            "service": "healthy",
+        """서비스 상태 확인"""
+        return {
+            "service": "LLM",
+            "status": "healthy",
             "providers": {
                 "openai": self.openai_client is not None,
-                "anthropic": self.anthropic_client is not None
+                "anthropic": False  # 미구현
+            },
+            "available_models": {
+                "openai": self.get_available_models("openai") if self.openai_client else [],
+                "anthropic": self.get_available_models("anthropic")
             }
         }
 
-        if not any(status["providers"].values()):
-            status["service"] = "no_providers_available"
 
-        return status
+# 편의 함수들
+_default_llm_service = None
+
+def get_llm_service() -> PureLLMService:
+    """기본 LLM 서비스 인스턴스 반환"""
+    global _default_llm_service
+    if _default_llm_service is None:
+        _default_llm_service = PureLLMService()
+    return _default_llm_service
+
+def generate_text(prompt: str, **kwargs) -> str:
+    """간단한 텍스트 생성"""
+    service = get_llm_service()
+    messages = [ChatMessage(role="user", content=prompt)]
+    response = service.generate_completion(messages, **kwargs)
+    return response.content
+
+def analyze_profile(profile_text: str) -> Dict[str, Any]:
+    """간단한 프로필 분석"""
+    service = get_llm_service()
+    return service.analyze_candidate_profile(profile_text)
+
+def analyze_job(job_text: str) -> Dict[str, Any]:
+    """간단한 채용공고 분석"""
+    service = get_llm_service()
+    return service.analyze_job_posting(job_text)
 
 
-# Global LLM service instance
-llm_service = LLMService()
+if __name__ == "__main__":
+    # 테스트 코드
+    service = get_llm_service()
+    print(service.health_check())

@@ -1,36 +1,30 @@
 """
 API routes for FitConnect Backend
+Note: AI services are now pure Python libraries, not HTTP endpoints
+Backend should import and use them directly:
+
+from ai.stt.service import get_stt_service
+from ai.llm.service import get_llm_service
+from ai.embedding.service import get_embedding_service
+from ai.matching.service import get_matching_service
 """
 
 from fastapi import APIRouter
 
-# Import AI module routers
-from ai.stt.routes import stt_router
-from ai.llm.routes import llm_router
-from ai.interview.routes import interview_router
+# Create main API router
+api_router = APIRouter()
 
-# Create main AI router
-ai_router = APIRouter()
-
-@ai_router.get("/")
-async def ai_root():
-    """AI module root endpoint"""
+@api_router.get("/")
+async def api_root():
+    """API module root endpoint"""
     return {
-        "message": "FitConnect AI Module",
+        "message": "FitConnect API",
         "version": "1.0.0",
-        "available_endpoints": [
-            "/stt - Speech-to-Text functionality",
-            "/llm - LLM integration",
-            "/interview - AI Interview system"
-        ],
-        "health_checks": [
-            "/stt/health",
-            "/llm/health",
-            "/interview/health"
-        ]
+        "note": "AI services are now pure Python libraries",
+        "usage": {
+            "stt": "from ai.stt.service import get_stt_service",
+            "llm": "from ai.llm.service import get_llm_service",
+            "embedding": "from ai.embedding.service import get_embedding_service",
+            "matching": "from ai.matching.service import get_matching_service"
+        }
     }
-
-# Include AI sub-routers
-ai_router.include_router(stt_router, prefix="/stt", tags=["Speech-to-Text"])
-ai_router.include_router(llm_router, prefix="/llm", tags=["Large Language Models"])
-ai_router.include_router(interview_router, prefix="/interview", tags=["AI Interview"])

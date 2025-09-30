@@ -1,13 +1,11 @@
 """Speech-to-Text module for FitConnect Backend"""
 
-from .service import stt_service, STTService
-from .routes import stt_router
+from .service import get_stt_service, PureSTTService
 from .models import TranscriptionResponse, TranscriptionRequest, STTHealthResponse
 
 __all__ = [
-    "stt_service",
-    "STTService",
-    "stt_router",
+    "get_stt_service",
+    "PureSTTService",
     "TranscriptionResponse",
     "TranscriptionRequest",
     "STTHealthResponse"

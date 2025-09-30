@@ -1,7 +1,6 @@
 """Large Language Model integration module for FitConnect Backend"""
 
-from .service import llm_service, LLMService, LLMProvider
-from .routes import llm_router
+from .service import get_llm_service, PureLLMService, LLMProvider
 from .models import (
     ChatMessage,
     CompletionRequest,
@@ -14,10 +13,9 @@ from .models import (
 )
 
 __all__ = [
-    "llm_service",
-    "LLMService",
+    "get_llm_service",
+    "PureLLMService",
     "LLMProvider",
-    "llm_router",
     "ChatMessage",
     "CompletionRequest",
     "CompletionResponse",

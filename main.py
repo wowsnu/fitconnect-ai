@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-from api.routes import ai_router
+from api.routes import api_router
 from config import get_settings
 
 settings = get_settings()
@@ -18,17 +18,24 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware
+# CORS middleware configuration
+# Origins can be configured via BACKEND_CORS_ORIGINS in .env or environment variables
+# Format: BACKEND_CORS_ORIGINS=["http://localhost:3000","https://yourapp.com"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure properly in production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+    allow_origins=settings.BACKEND_CORS_ORIGINS,
+    allow_credentials=True,  # Only safe because we use explicit origins
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "Accept",
+        "Origin",
+        "X-Requested-With"
+    ])
 
-# Include AI routes
-app.include_router(ai_router, prefix="/api/ai", tags=["AI"])
+# Include API routes
+app.include_router(api_router, prefix="/api", tags=["API"])
 
 @app.get("/")
 async def root():

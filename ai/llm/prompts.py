@@ -5,9 +5,9 @@ LLM 프롬프트 템플릿 관리
 
 from typing import Dict, Any
 
-# 면접 분석 프롬프트
+# 면접 분석 프롬프트 (user 메시지용)
 INTERVIEW_ANALYSIS_PROMPT = """
-당신은 면접 전문가입니다. 면접 내용을 분석하여 다음 JSON 형식으로 결과를 제공해주세요:
+면접 내용을 다음 JSON 형식으로 분석해주세요:
 
 {
     "technical_skills": ["언급된 기술 스킬들"],

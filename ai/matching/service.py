@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
 
 from .models import MatchingScore, MatchingResult, RecommendationResult, MatchingHealth
+from .soft_filters import get_soft_filter_service, SoftFilterService
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ class MatchingService:
         self.alpha = alpha
         self.beta = beta
         self.default_params = {"alpha": alpha, "beta": beta}
+        self.soft_filter_service = get_soft_filter_service()
 
         logger.info(f"MatchingService initialized with alpha={alpha}, beta={beta}")
 
@@ -260,6 +262,181 @@ class MatchingService:
 
         except Exception as e:
             logger.error(f"Failed to perform reverse batch matching: {e}")
+            raise
+
+    def recommend_jobs_for_applicant(
+        self,
+        applicant_vector: List[float],
+        job_candidates: List[Dict[str, Any]],
+        applicant_preferences: Dict[str, Any],
+        applicant_id: str,
+        alpha: Optional[float] = None,
+        beta: Optional[float] = None,
+        top_n: Optional[int] = 20
+    ) -> RecommendationResult:
+        """
+        구직자에게 맞는 공고 추천
+
+        Args:
+            applicant_vector: 구직자 벡터
+            job_candidates: 공고 후보들 (벡터 + 요구사항 포함)
+            applicant_preferences: 구직자 선호조건
+            applicant_id: 구직자 ID
+            alpha: 코사인 유사도 가중치
+            beta: 유클리드 거리 가중치
+            top_n: 반환할 상위 N개
+
+        Returns:
+            RecommendationResult with ranked job matches
+        """
+        try:
+            logger.info(f"Finding job recommendations for applicant {applicant_id}")
+            matches = []
+
+            for job in job_candidates:
+                # 벡터 매칭 점수 계산
+                job_vector = job.get("vector", job.get("combined_vector"))
+                if not job_vector:
+                    logger.warning(f"No vector found for job {job.get('id')}")
+                    continue
+
+                similarity_score = self.calculate_similarity_score(
+                    job_vector=job_vector,
+                    applicant_vector=applicant_vector,
+                    alpha=alpha,
+                    beta=beta
+                )
+
+                # 호환성 점수 계산 (공고가 구직자 선호조건과 얼마나 맞는지)
+                compatibility_result = self.soft_filter_service.calculate_compatibility(
+                    candidate_data=job,
+                    requirements=applicant_preferences
+                )
+
+                # 통합 점수 = 벡터 유사도 * 호환성 점수
+                integrated_score = similarity_score.score * compatibility_result.overall_score
+
+                # MatchingResult 생성
+                match_result = MatchingResult(
+                    job_id=job.get("id"),
+                    applicant_id=applicant_id,
+                    score=integrated_score,
+                    cosine_similarity=similarity_score.cosine_similarity,
+                    euclidean_distance=similarity_score.euclidean_distance,
+                    metadata={
+                        "vector_score": similarity_score.score,
+                        "compatibility_score": compatibility_result.overall_score,
+                        "compatibility_details": {score.field: score.score for score in compatibility_result.field_scores},
+                        "compatibility_summary": compatibility_result.summary,
+                        "job_data": job
+                    }
+                )
+
+                matches.append(match_result)
+
+            # 점수순 정렬 및 상위 N개 선택
+            matches.sort(key=lambda x: x.score, reverse=True)
+            if top_n:
+                matches = matches[:top_n]
+
+            logger.info(f"Job recommendation completed - {len(matches)} matches for applicant {applicant_id}")
+
+            return RecommendationResult(
+                applicant_id=applicant_id,
+                matches=matches,
+                total_candidates=len(job_candidates),
+                filters_applied={
+                    "total_jobs": len(job_candidates),
+                    "soft_filtering_applied": True,
+                    "final_recommendations": len(matches)
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to recommend jobs for applicant: {e}")
+            raise
+
+    def recommend_candidates_for_job(
+        self,
+        job_vector: List[float],
+        applicant_candidates: List[Dict[str, Any]],
+        job_requirements: Dict[str, Any],
+        job_id: str,
+        alpha: Optional[float] = None,
+        beta: Optional[float] = None,
+        top_n: Optional[int] = 20
+    ) -> List[MatchingResult]:
+        """
+        공고에 맞는 구직자 추천
+
+        Args:
+            job_vector: 공고 벡터
+            applicant_candidates: 구직자 후보들 (벡터 + 프로필 포함)
+            job_requirements: 공고 요구사항
+            job_id: 공고 ID
+            alpha: 코사인 유사도 가중치
+            beta: 유클리드 거리 가중치
+            top_n: 반환할 상위 N개
+
+        Returns:
+            List of MatchingResult objects, ranked by score
+        """
+        try:
+            logger.info(f"Finding candidate recommendations for job {job_id}")
+            matches = []
+
+            for applicant in applicant_candidates:
+                # 벡터 매칭 점수 계산
+                applicant_vector = applicant.get("vector", applicant.get("combined_vector"))
+                if not applicant_vector:
+                    logger.warning(f"No vector found for applicant {applicant.get('id')}")
+                    continue
+
+                similarity_score = self.calculate_similarity_score(
+                    job_vector=job_vector,
+                    applicant_vector=applicant_vector,
+                    alpha=alpha,
+                    beta=beta
+                )
+
+                # 호환성 점수 계산 (구직자가 공고 요구조건과 얼마나 맞는지)
+                compatibility_result = self.soft_filter_service.calculate_compatibility(
+                    candidate_data=applicant,
+                    requirements=job_requirements
+                )
+
+                # 통합 점수 = 벡터 유사도 * 호환성 점수
+                integrated_score = similarity_score.score * compatibility_result.overall_score
+
+                # MatchingResult 생성
+                match_result = MatchingResult(
+                    job_id=job_id,
+                    applicant_id=applicant.get("id"),
+                    score=integrated_score,
+                    cosine_similarity=similarity_score.cosine_similarity,
+                    euclidean_distance=similarity_score.euclidean_distance,
+                    metadata={
+                        "vector_score": similarity_score.score,
+                        "compatibility_score": compatibility_result.overall_score,
+                        "compatibility_details": {score.field: score.score for score in compatibility_result.field_scores},
+                        "compatibility_summary": compatibility_result.summary,
+                        "applicant_data": applicant
+                    }
+                )
+
+                matches.append(match_result)
+
+            # 점수순 정렬 및 상위 N개 선택
+            matches.sort(key=lambda x: x.score, reverse=True)
+            if top_n:
+                matches = matches[:top_n]
+
+            logger.info(f"Candidate recommendation completed - {len(matches)} matches for job {job_id}")
+
+            return matches
+
+        except Exception as e:
+            logger.error(f"Failed to recommend candidates for job: {e}")
             raise
 
     def apply_structural_filters(

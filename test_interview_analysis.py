@@ -168,41 +168,53 @@ def test_interview_analysis_only(interview_data):
     print("=" * 50)
 
     try:
-        # LLM으로 면접 내용 분석
+        # 텍스트를 임시 파일로 저장 (STT 우회)
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+            f.write(interview_data['text'])
+            temp_file = f.name
+
+        # 파일을 바이트로 읽기
+        with open(temp_file, 'rb') as f:
+            audio_data = f.read()
+
+        # 새로운 analyze_interview 메서드 사용
         llm_service = get_llm_service()
+        result = llm_service.analyze_interview(
+            audio_data=audio_data,
+            filename="interview.txt",  # txt로 STT 우회
+            language="ko"
+        )
 
-        # 프롬프트 모듈에서 가져오기
-        from ai.llm.prompts import build_interview_analysis_messages
+        # 임시 파일 삭제
+        import os
+        os.unlink(temp_file)
 
-        messages = build_interview_analysis_messages(interview_data['text'])
-
-        response = llm_service.generate_completion(messages=messages, temperature=0.7)
+        if "error" in result:
+            print(f"❌ 에러 발생: {result['error']}")
+            return None
 
         print("✅ 면접 분석 완료!")
-        print(f"응답 길이: {len(response.content)} 글자")
-        print(f"사용 모델: {response.model}")
+        print(f"전사 텍스트 길이: {len(result['transcript'])} 글자")
 
-        # JSON 파싱 시도 (개선된 파싱 로직)
-        from ai.llm.utils import parse_llm_json_response, format_list_display, format_text_display
+        # JSON 파싱 (이미 analyze_interview에서 파싱됨)
+        from ai.llm.utils import format_list_display, format_text_display
 
-        analysis = parse_llm_json_response(response.content)
+        analysis = result['analysis']
 
-        if analysis:
-            print("\n📊 구조화된 분석 결과:")
-            for key, value in analysis.items():
-                if isinstance(value, list):
-                    print(f"  {key}: {format_list_display(value)}")
-                else:
-                    print(f"  {key}: {format_text_display(str(value), 80)}")
+        print("\n📊 구조화된 분석 결과:")
+        for key, value in analysis.items():
+            if isinstance(value, list):
+                print(f"  {key}: {format_list_display(value)}")
+            else:
+                print(f"  {key}: {format_text_display(str(value), 80)}")
 
-            return analysis
-        else:
-            print("⚠️  JSON 파싱 실패, 원본 텍스트 응답:")
-            print(response.content[:300] + "...")
-            return {"raw_response": response.content}
+        return analysis
 
     except Exception as e:
         print(f"❌ 면접 분석 실패: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def test_db_interview_integration(db_profile, interview_analysis):
@@ -211,37 +223,35 @@ def test_db_interview_integration(db_profile, interview_analysis):
     print("=" * 50)
 
     try:
+        # 새로운 integrate_profile 메서드 사용
         llm_service = get_llm_service()
+        integrated_profile = llm_service.integrate_profile(
+            db_profile=db_profile,
+            interview_analysis=interview_analysis
+        )
 
-        # 프롬프트 모듈에서 가져오기
-        from ai.llm.prompts import build_integration_messages
-
-        messages = build_integration_messages(db_profile, interview_analysis)
-        response = llm_service.generate_completion(messages=messages, temperature=0.5)
+        if "error" in integrated_profile:
+            print(f"❌ 에러 발생: {integrated_profile['error']}")
+            return None
 
         print("✅ 통합 분석 완료!")
 
-        # JSON 파싱 시도 (개선된 파싱 로직)
-        from ai.llm.utils import parse_llm_json_response, format_list_display, format_text_display
+        # 결과 출력
+        from ai.llm.utils import format_list_display, format_text_display
 
-        integrated_profile = parse_llm_json_response(response.content)
+        print("\n🎯 최종 통합 프로필:")
+        for key, value in integrated_profile.items():
+            if isinstance(value, list):
+                print(f"  {key}: {format_list_display(value, 4)}")
+            else:
+                print(f"  {key}: {format_text_display(str(value), 100)}")
 
-        if integrated_profile:
-            print("\n🎯 최종 통합 프로필:")
-            for key, value in integrated_profile.items():
-                if isinstance(value, list):
-                    print(f"  {key}: {format_list_display(value, 4)}")
-                else:
-                    print(f"  {key}: {format_text_display(str(value), 100)}")
-
-            return integrated_profile
-        else:
-            print("⚠️  JSON 파싱 실패, 원본 응답:")
-            print(response.content[:400] + "...")
-            return {"raw_response": response.content}
+        return integrated_profile
 
     except Exception as e:
         print(f"❌ 통합 분석 실패: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def test_embedding_generation(integrated_profile):
@@ -252,14 +262,15 @@ def test_embedding_generation(integrated_profile):
     try:
         embedding_service = get_embedding_service()
 
-        # 프로필에서 텍스트 추출 (안전하게)
+        # 프로필에서 텍스트 추출 (service.py와 동일하게)
         from ai.llm.utils import safe_get_from_dict, format_text_display
 
         preferences = safe_get_from_dict(integrated_profile, 'work_preferences', '업무 환경 선호사항 없음')
         technical_skills = safe_get_from_dict(integrated_profile, 'technical_skills', [])
+        tools = safe_get_from_dict(integrated_profile, 'tools_and_platforms', [])
         soft_skills = safe_get_from_dict(integrated_profile, 'soft_skills', [])
 
-        skills = ', '.join(technical_skills + soft_skills)
+        skills = ', '.join(technical_skills + tools + soft_skills)
         if not skills.strip():
             skills = '스킬 정보 없음'
 
@@ -326,10 +337,10 @@ def main():
     print("\n" + "=" * 60)
     print("🎉 전체 테스트 완료!")
     print("\n🎯 결과 요약:")
-    print("- 면접 내용만 LLM 분석 (STT 제외)")
-    print("- DB 데이터는 구조화된 상태로 직접 사용")
-    print("- 두 결과를 LLM으로 통합")
-    print("- 최종 프로필로 임베딩 벡터 생성")
+    print("- analyze_interview(): 면접 텍스트 → LLM 분석 (STT 우회)")
+    print("- integrate_profile(): DB + 면접 분석 → 통합 프로필")
+    print("- create_applicant_vector(): 통합 프로필 → 임베딩 벡터")
+    print("- 새로운 service 메서드들을 사용한 개선된 플로우")
 
 if __name__ == "__main__":
     main()

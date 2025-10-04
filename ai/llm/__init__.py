@@ -1,27 +1,23 @@
 """Large Language Model integration module for FitConnect Backend"""
 
-from .service import get_llm_service, PureLLMService, LLMProvider
+from .service import (
+    get_llm_service,
+    PureLLMService,
+    analyze_interview_audio,
+    integrate_candidate_profile,
+    create_complete_candidate_profile
+)
 from .models import (
     ChatMessage,
-    CompletionRequest,
-    CompletionResponse,
-    ProfileAnalysisRequest,
-    JobAnalysisRequest,
-    LLMHealthResponse,
-    SkillAnalysis,
-    JobRequirements
+    CompletionResponse
 )
 
 __all__ = [
     "get_llm_service",
     "PureLLMService",
-    "LLMProvider",
+    "analyze_interview_audio",
+    "integrate_candidate_profile",
+    "create_complete_candidate_profile",
     "ChatMessage",
-    "CompletionRequest",
-    "CompletionResponse",
-    "ProfileAnalysisRequest",
-    "JobAnalysisRequest",
-    "LLMHealthResponse",
-    "SkillAnalysis",
-    "JobRequirements"
+    "CompletionResponse"
 ]

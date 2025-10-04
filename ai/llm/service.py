@@ -1,62 +1,33 @@
 """
 Pure Python LLM service - 완전 독립적인 AI 모듈
-OpenAI, Anthropic 등 LLM 통합 서비스
+OpenAI GPT 통합 서비스
 """
 
 import logging
 import json
 from typing import Dict, List, Optional, Any, Union
-from enum import Enum
-from dataclasses import dataclass
 import os
+from pathlib import Path
 
-import openai
 from openai import OpenAI
 
+from .models import ChatMessage, CompletionResponse
+from . import prompts
+from ..stt.service import get_stt_service
+
 logger = logging.getLogger(__name__)
-
-
-class LLMProvider(str, Enum):
-    """지원하는 LLM 프로바이더"""
-    OPENAI = "openai"
-    ANTHROPIC = "anthropic"
-
-
-@dataclass
-class ChatMessage:
-    """채팅 메시지"""
-    role: str  # "system", "user", "assistant"
-    content: str
-
-
-@dataclass
-class LLMResponse:
-    """LLM 응답"""
-    content: str
-    provider: str
-    model: str
-    usage: Dict[str, Any]
-    metadata: Dict[str, Any] = None
-
-    def __post_init__(self):
-        if self.metadata is None:
-            self.metadata = {}
 
 
 class PureLLMService:
     """순수 Python LLM 서비스"""
 
-    def __init__(self, openai_api_key: Optional[str] = None, anthropic_api_key: Optional[str] = None):
+    def __init__(self, openai_api_key: Optional[str] = None):
         """
         Args:
             openai_api_key: OpenAI API 키 (None이면 환경변수에서)
-            anthropic_api_key: Anthropic API 키 (None이면 환경변수에서)
         """
         self.openai_client = None
-        self.anthropic_client = None
-
         self._setup_openai(openai_api_key)
-        self._setup_anthropic(anthropic_api_key)
 
     def _setup_openai(self, api_key: Optional[str] = None):
         """OpenAI 클라이언트 설정"""
@@ -70,47 +41,28 @@ class PureLLMService:
         except Exception as e:
             logger.error(f"Failed to setup OpenAI client: {e}")
 
-    def _setup_anthropic(self, api_key: Optional[str] = None):
-        """Anthropic 클라이언트 설정"""
-        try:
-            # Anthropic 클라이언트는 필요시 나중에 추가
-            key = api_key or os.getenv("ANTHROPIC_API_KEY")
-            if key:
-                logger.info("Anthropic API key available (client not implemented yet)")
-            else:
-                logger.warning("Anthropic API key not found")
-        except Exception as e:
-            logger.error(f"Failed to setup Anthropic client: {e}")
-
     def generate_completion(
         self,
         messages: List[Union[ChatMessage, Dict[str, str]]],
-        provider: str = "openai",
         model: Optional[str] = None,
         temperature: float = 0.7,
         max_tokens: int = 1000,
         **kwargs
-    ) -> LLMResponse:
+    ) -> CompletionResponse:
         """
-        텍스트 생성
+        텍스트 생성 (OpenAI)
 
         Args:
             messages: 메시지 리스트
-            provider: LLM 프로바이더 ("openai", "anthropic")
-            model: 사용할 모델명
+            model: 사용할 모델명 (기본: gpt-4o)
             temperature: 창의성 조절 (0.0-1.0)
             max_tokens: 최대 토큰 수
             **kwargs: 추가 파라미터
 
         Returns:
-            LLMResponse 객체
+            CompletionResponse 객체
         """
-        if provider == "openai":
-            return self._generate_openai(messages, model, temperature, max_tokens, **kwargs)
-        elif provider == "anthropic":
-            return self._generate_anthropic(messages, model, temperature, max_tokens, **kwargs)
-        else:
-            raise ValueError(f"Unsupported provider: {provider}")
+        return self._generate_openai(messages, model, temperature, max_tokens, **kwargs)
 
     def _generate_openai(
         self,
@@ -119,7 +71,7 @@ class PureLLMService:
         temperature: float = 0.7,
         max_tokens: int = 1000,
         **kwargs
-    ) -> LLMResponse:
+    ) -> CompletionResponse:
         """OpenAI 텍스트 생성"""
         if not self.openai_client:
             raise RuntimeError("OpenAI client not initialized")
@@ -151,7 +103,7 @@ class PureLLMService:
                 "total_tokens": response.usage.total_tokens
             }
 
-            return LLMResponse(
+            return CompletionResponse(
                 content=response.choices[0].message.content,
                 provider="openai",
                 model=model_name,
@@ -163,190 +115,218 @@ class PureLLMService:
             logger.error(f"OpenAI generation failed: {e}")
             raise RuntimeError(f"OpenAI generation failed: {str(e)}")
 
-    def _generate_anthropic(self, messages, model, temperature, max_tokens, **kwargs):
-        """Anthropic 텍스트 생성 (향후 구현)"""
-        raise NotImplementedError("Anthropic integration not implemented yet")
-
-    def analyze_candidate_profile(self, profile_text: str, **kwargs) -> Dict[str, Any]:
-        """
-        지원자 프로필 분석
-
-        Args:
-            profile_text: 지원자 프로필 텍스트
-            **kwargs: 추가 LLM 파라미터
-
-        Returns:
-            분석 결과 딕셔너리
-        """
-        system_prompt = """
-        당신은 채용 전문가입니다. 제공된 지원자 프로필을 분석하여 다음 항목들을 추출하고 구조화해주세요:
-
-        1. 기술 스킬 (Technical Skills): 프로그래밍 언어, 프레임워크, 도구 등
-        2. 소프트 스킬 (Soft Skills): 커뮤니케이션, 리더십, 팀워크 등
-        3. 경력 레벨 (Experience Level): 신입, 주니어, 시니어 등
-        4. 전문 분야 (Expertise): 프론트엔드, 백엔드, 풀스택, 데이터 등
-        5. 성장 잠재력 (Growth Potential): 학습 의지, 적응력 등
-
-        JSON 형식으로 구조화된 결과를 반환해주세요.
-        """
-
-        messages = [
-            ChatMessage(role="system", content=system_prompt),
-            ChatMessage(role="user", content=f"분석할 프로필:\n{profile_text}")
-        ]
-
-        try:
-            response = self.generate_completion(
-                messages=messages,
-                temperature=0.3,
-                max_tokens=800,
-                **kwargs
-            )
-
-            # JSON 파싱 시도
-            try:
-                analysis = json.loads(response.content)
-            except json.JSONDecodeError:
-                # JSON 파싱 실패시 텍스트 그대로 반환
-                analysis = {"raw_analysis": response.content}
-
-            return analysis
-
-        except Exception as e:
-            logger.error(f"Profile analysis failed: {e}")
-            return {"error": f"분석 중 오류 발생: {str(e)}"}
-
-    def analyze_job_posting(self, job_text: str, **kwargs) -> Dict[str, Any]:
-        """
-        채용 공고 분석
-
-        Args:
-            job_text: 채용 공고 텍스트
-            **kwargs: 추가 LLM 파라미터
-
-        Returns:
-            분석 결과 딕셔너리
-        """
-        system_prompt = """
-        당신은 채용 컨설턴트입니다. 제공된 채용 공고를 분석하여 다음을 구조화해주세요:
-
-        1. 필수 기술 스킬 (Required Skills)
-        2. 우대 기술 스킬 (Preferred Skills)
-        3. 경력 요구사항 (Experience Requirements)
-        4. 업무 내용 (Job Responsibilities)
-        5. 회사 문화/혜택 (Company Culture & Benefits)
-        6. 근무 조건 (Work Conditions)
-
-        JSON 형식으로 구조화된 결과를 반환해주세요.
-        """
-
-        messages = [
-            ChatMessage(role="system", content=system_prompt),
-            ChatMessage(role="user", content=f"분석할 채용공고:\n{job_text}")
-        ]
-
-        try:
-            response = self.generate_completion(
-                messages=messages,
-                temperature=0.3,
-                max_tokens=800,
-                **kwargs
-            )
-
-            try:
-                analysis = json.loads(response.content)
-            except json.JSONDecodeError:
-                analysis = {"raw_analysis": response.content}
-
-            return analysis
-
-        except Exception as e:
-            logger.error(f"Job posting analysis failed: {e}")
-            return {"error": f"분석 중 오류 발생: {str(e)}"}
-
-    def generate_interview_questions(
+    def analyze_interview(
         self,
-        context: str,
-        question_count: int = 5,
-        interview_type: str = "general",
+        audio_data: bytes,
+        filename: str = "interview.wav",
+        language: str = "ko",
         **kwargs
-    ) -> List[str]:
+    ) -> Dict[str, Any]:
         """
-        면접 질문 생성
+        면접 음성 파일 분석 (STT → LLM 분석)
 
         Args:
-            context: 면접 맥락 (직무, 요구사항 등)
-            question_count: 생성할 질문 수
-            interview_type: 면접 유형 ("technical", "behavioral", "general")
+            audio_data: 음성 파일 바이트 데이터
+            filename: 파일명 (확장자 확인용)
+            language: 언어 코드 (ko, en 등)
             **kwargs: 추가 LLM 파라미터
 
         Returns:
-            질문 리스트
+            {
+                "transcript": "면접 텍스트",
+                "analysis": {...},  # 면접 분석 결과
+                "stt_metadata": {...}
+            }
         """
-        system_prompt = f"""
-        당신은 면접관입니다. 주어진 컨텍스트를 바탕으로 {interview_type} 면접 질문을 {question_count}개 생성해주세요.
-
-        질문 유형별 가이드라인:
-        - technical: 기술적 역량과 문제해결 능력을 평가하는 질문
-        - behavioral: 경험과 행동 패턴을 파악하는 질문
-        - general: 일반적인 적합성과 동기를 확인하는 질문
-
-        각 질문은 구체적이고 답변을 통해 의미있는 평가가 가능해야 합니다.
-        질문만 나열해주세요 (번호 포함).
-        """
-
-        messages = [
-            ChatMessage(role="system", content=system_prompt),
-            ChatMessage(role="user", content=f"컨텍스트:\n{context}")
-        ]
-
         try:
+            # 1. STT: 음성 → 텍스트 (텍스트 입력은 우회)
+            file_extension = Path(filename).suffix.lower()
+            stt_metadata: Dict[str, Any]
+
+            if file_extension == ".txt":
+                transcript = audio_data.decode("utf-8", errors="ignore").strip()
+                stt_metadata = {
+                    "source": "text_input",
+                    "language": language,
+                    "filename": filename,
+                    "bytes": len(audio_data)
+                }
+            else:
+                stt_service = get_stt_service()
+                supported_formats = getattr(stt_service, "get_supported_formats", lambda: [])()
+
+                if supported_formats and file_extension not in supported_formats:
+                    transcript = audio_data.decode("utf-8", errors="ignore").strip()
+                    stt_metadata = {
+                        "source": "text_input_fallback",
+                        "language": language,
+                        "filename": filename,
+                        "bytes": len(audio_data)
+                    }
+                else:
+                    transcript, stt_metadata = stt_service.transcribe_bytes(
+                        audio_data=audio_data,
+                        filename=filename,
+                        language=language
+                    )
+
+            logger.info(f"STT completed: {transcript[:50]}...")
+
+            # 2. LLM: 면접 분석 (prompts.py 사용)
+            messages = prompts.build_interview_analysis_messages(transcript)
+
             response = self.generate_completion(
                 messages=messages,
-                temperature=0.8,
-                max_tokens=600,
+                temperature=0.3,
+                max_tokens=1000,
                 **kwargs
             )
 
-            # 질문들을 파싱
-            questions = []
-            lines = response.content.strip().split('\n')
-            for line in lines:
-                line = line.strip()
-                if line and (line[0].isdigit() or line.startswith('-')):
-                    # 번호나 불릿 포인트 제거
-                    question = line.lstrip('0123456789.- ').strip()
-                    if question:
-                        questions.append(question)
+            # 3. JSON 파싱
+            try:
+                analysis = json.loads(response.content)
+            except json.JSONDecodeError:
+                analysis = {"raw_analysis": response.content}
 
-            return questions[:question_count]
+            return {
+                "transcript": transcript,
+                "analysis": analysis,
+                "stt_metadata": stt_metadata
+            }
 
         except Exception as e:
-            logger.error(f"Interview question generation failed: {e}")
-            return [f"질문 생성 중 오류가 발생했습니다: {str(e)}"]
+            logger.error(f"Interview analysis failed: {e}")
+            return {"error": f"면접 분석 중 오류 발생: {str(e)}"}
 
-    def get_available_models(self, provider: str = "openai") -> List[str]:
-        """사용 가능한 모델 리스트"""
-        if provider == "openai":
-            return ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"]
-        elif provider == "anthropic":
-            return ["claude-3-5-sonnet-20241022", "claude-3-sonnet", "claude-3-opus"]
-        else:
-            return []
+    def integrate_profile(
+        self,
+        db_profile: Dict[str, Any],
+        interview_analysis: Dict[str, Any],
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        DB 프로필 + 면접 분석 통합
+
+        Args:
+            db_profile: DB에서 가져온 구조화된 프로필 데이터
+            interview_analysis: 면접 분석 결과
+            **kwargs: 추가 LLM 파라미터
+
+        Returns:
+            통합된 최종 프로필 분석 결과
+        """
+        try:
+            # prompts.py의 통합 프롬프트 사용
+            messages = prompts.build_integration_messages(db_profile, interview_analysis)
+
+            response = self.generate_completion(
+                messages=messages,
+                temperature=0.3,
+                max_tokens=1200,
+                **kwargs
+            )
+
+            # JSON 파싱
+            try:
+                integrated_profile = json.loads(response.content)
+            except json.JSONDecodeError:
+                integrated_profile = {"raw_analysis": response.content}
+
+            return integrated_profile
+
+        except Exception as e:
+            logger.error(f"Profile integration failed: {e}")
+            return {"error": f"프로필 통합 중 오류 발생: {str(e)}"}
+
+    def create_complete_profile(
+        self,
+        audio_data: bytes,
+        db_profile: Dict[str, Any],
+        filename: str = "interview.wav",
+        language: str = "ko",
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        전체 플로우: 면접 분석 → DB 통합 → 임베딩 생성
+
+        Args:
+            audio_data: 면접 음성 파일 바이트 데이터
+            db_profile: DB 프로필 데이터
+            filename: 파일명
+            language: 언어 코드
+            **kwargs: 추가 LLM 파라미터
+
+        Returns:
+            {
+                "transcript": "면접 텍스트",
+                "interview_analysis": {...},
+                "integrated_profile": {...},
+                "embedding_vector": {...},
+                "stt_metadata": {...}
+            }
+        """
+        try:
+            # 1. 면접 분석 (STT → LLM)
+            interview_result = self.analyze_interview(
+                audio_data=audio_data,
+                filename=filename,
+                language=language,
+                **kwargs
+            )
+
+            if "error" in interview_result:
+                return interview_result
+
+            # 2. DB + 면접 통합
+            integrated_profile = self.integrate_profile(
+                db_profile=db_profile,
+                interview_analysis=interview_result["analysis"],
+                **kwargs
+            )
+
+            if "error" in integrated_profile:
+                return integrated_profile
+
+            # 3. 임베딩 생성
+            from ..embedding.service import get_embedding_service
+            embedding_service = get_embedding_service()
+
+            # 선호도와 스킬 추출
+            work_preferences = integrated_profile.get("work_preferences", "")
+            technical_skills = integrated_profile.get("technical_skills", [])
+            tools = integrated_profile.get("tools_and_platforms", [])
+            soft_skills = integrated_profile.get("soft_skills", [])
+
+            skills_text = ", ".join(technical_skills + tools + soft_skills)
+
+            vector_result = embedding_service.create_applicant_vector(
+                preferences=work_preferences,
+                skills=skills_text
+            )
+
+            # 4. 전체 결과 반환
+            return {
+                "transcript": interview_result["transcript"],
+                "interview_analysis": interview_result["analysis"],
+                "integrated_profile": integrated_profile,
+                "embedding_vector": vector_result.combined_vector,
+                "vector_metadata": {
+                    "model": vector_result.model,
+                    "dimension": vector_result.dimension
+                },
+                "stt_metadata": interview_result["stt_metadata"]
+            }
+
+        except Exception as e:
+            logger.error(f"Complete profile creation failed: {e}")
+            return {"error": f"전체 프로필 생성 중 오류 발생: {str(e)}"}
 
     def health_check(self) -> Dict[str, Any]:
         """서비스 상태 확인"""
         return {
             "service": "LLM",
-            "status": "healthy",
-            "providers": {
-                "openai": self.openai_client is not None,
-                "anthropic": False  # 미구현
-            },
-            "available_models": {
-                "openai": self.get_available_models("openai") if self.openai_client else [],
-                "anthropic": self.get_available_models("anthropic")
-            }
+            "status": "healthy" if self.openai_client else "not_configured",
+            "openai_configured": self.openai_client is not None
         }
 
 
@@ -367,15 +347,32 @@ def generate_text(prompt: str, **kwargs) -> str:
     response = service.generate_completion(messages, **kwargs)
     return response.content
 
-def analyze_profile(profile_text: str) -> Dict[str, Any]:
-    """간단한 프로필 분석"""
+def analyze_interview_audio(
+    audio_data: bytes,
+    filename: str = "interview.wav",
+    language: str = "ko"
+) -> Dict[str, Any]:
+    """면접 음성 분석 편의 함수"""
     service = get_llm_service()
-    return service.analyze_candidate_profile(profile_text)
+    return service.analyze_interview(audio_data, filename, language)
 
-def analyze_job(job_text: str) -> Dict[str, Any]:
-    """간단한 채용공고 분석"""
+def integrate_candidate_profile(
+    db_profile: Dict[str, Any],
+    interview_analysis: Dict[str, Any]
+) -> Dict[str, Any]:
+    """프로필 통합 편의 함수"""
     service = get_llm_service()
-    return service.analyze_job_posting(job_text)
+    return service.integrate_profile(db_profile, interview_analysis)
+
+def create_complete_candidate_profile(
+    audio_data: bytes,
+    db_profile: Dict[str, Any],
+    filename: str = "interview.wav",
+    language: str = "ko"
+) -> Dict[str, Any]:
+    """전체 플로우 편의 함수: 면접→통합→임베딩"""
+    service = get_llm_service()
+    return service.create_complete_profile(audio_data, db_profile, filename, language)
 
 
 if __name__ == "__main__":

@@ -10,12 +10,14 @@ INTERVIEW_ANALYSIS_PROMPT = """
 면접 내용을 다음 JSON 형식으로 분석해주세요:
 
 {
-    "technical_skills": ["언급된 기술 스킬들"],
-    "soft_skills": ["면접에서 드러난 소프트 스킬들"],
-    "core_competencies": ["핵심 역량들"],
+    "technical_skills": ["언급된 정확한 기술 스킬명 (예: Python, Django, React)"],
+    "tools_and_platforms": ["언급된 정확한 도구/플랫폼명 (예: Git, AWS, Docker)"],
+    "companies_mentioned": ["언급된 회사명 그대로"],
+    "soft_skills": ["면접에서 드러난 소프트 스킬들 (추론 가능)"],
+    "core_competencies": ["핵심 역량들 (추론 가능)"],
     "strengths": ["주요 강점들"],
     "key_experiences": ["핵심 경험들"],
-    "personality": "성격 및 업무 스타일",
+    "personality": "성격 및 업무 스타일 (추론 가능)",
     "career_goals": "커리어 목표",
     "work_preferences": "선호하는 업무 환경",
     "communication_style": "커뮤니케이션 스타일",
@@ -23,7 +25,11 @@ INTERVIEW_ANALYSIS_PROMPT = """
     "experience_insights": "경험에서 드러난 역량"
 }
 
-면접 내용을 객관적으로 분석하되, 구체적으로 언급된 내용만 포함해주세요.
+**중요 규칙**:
+- technical_skills, tools_and_platforms, companies_mentioned는 언급된 **정확한 명칭 그대로** 보존
+- 예: "파이썬" → "Python", "장고" → "Django"
+- soft_skills, personality 등은 추론/해석 가능
+- 언급되지 않은 내용은 추측하지 말고 빈 배열/빈 문자열로
 """
 
 # DB + 면접 통합 분석 프롬프트
@@ -44,20 +50,26 @@ def create_integration_prompt(db_profile: Dict[str, Any], interview_analysis: Di
 
 다음 JSON 형식으로 통합된 최종 프로필을 생성해주세요:
 {{
-    "technical_skills": ["DB 경력 + 면접에서 언급된 모든 기술 (중복 제거)"],
-    "soft_skills": ["면접에서 드러난 소프트 스킬들"],
+    "technical_skills": ["DB 경력 + 면접에서 언급된 모든 기술 스킬명 (정확한 명칭, 중복 제거)"],
+    "tools_and_platforms": ["DB + 면접에서 언급된 모든 도구/플랫폼명 (정확한 명칭)"],
+    "companies": ["경력 회사명 정확히"],
+    "soft_skills": ["면접에서 드러난 소프트 스킬들 (추론 가능)"],
     "experience_level": "DB 경력 데이터를 기준으로 정확히 계산 (예: 신입, 주니어 2년, 시니어 5년)",
     "strengths": ["DB + 면접 내용을 종합한 주요 강점 3-5개"],
-    "personality": "면접에서 파악된 성격 및 업무 스타일",
+    "personality": "면접에서 파악된 성격 및 업무 스타일 (추론 가능)",
     "career_goals": "면접에서 언급된 커리어 목표",
     "work_preferences": "선호하는 업무 환경 및 조건",
     "education_background": "학력 요약 (학교, 전공, 졸업년도)",
     "career_summary": "경력 요약 (주요 회사, 직책, 기간)",
     "key_achievements": ["주목할 만한 성과나 프로젝트"],
-    "growth_potential": "성장 가능성 및 학습 의지 평가"
+    "growth_potential": "성장 가능성 및 학습 의지 평가 (추론 가능)"
 }}
 
-중요: DB 데이터를 기준으로 정확한 정보를 제공하고, 면접에서 추가로 파악된 내용으로 보완해주세요.
+**중요 규칙**:
+- technical_skills, tools_and_platforms, companies는 DB와 면접에서 **언급된 정확한 명칭 그대로** 보존
+- 예: "Python", "Django", "AWS", "네이버" 같이 정확히
+- soft_skills, personality, growth_potential 등은 추론/해석 가능
+- DB 와 면접에서 언급한 내용을 골고루 반영 
 """
 
 # 매칭용 프로필 요약 프롬프트

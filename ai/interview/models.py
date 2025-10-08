@@ -1,0 +1,135 @@
+"""
+Interview System Pydantic Models
+"""
+
+from pydantic import BaseModel, Field
+from typing import List, Literal, Optional
+
+
+# ==================== General Interview ====================
+
+class GeneralInterviewAnalysis(BaseModel):
+    """구조화 면접 답변 종합 분석 결과"""
+
+    key_themes: List[str] = Field(
+        description="답변에서 자주 언급된 주요 테마/키워드",
+        max_length=5,
+        default_factory=list,
+    )
+
+    interests: List[str] = Field(
+        description="지원자가 관심있어하는 기술 분야",
+        max_length=5,
+        default_factory=list,
+    )
+
+    work_style_hints: List[str] = Field(
+        description="답변에서 드러난 업무 스타일",
+        max_length=5,
+        default_factory=list,
+    )
+
+    emphasized_experiences: List[str] = Field(
+        description="지원자가 자주 언급하거나 강조한 경험",
+        max_length=5,
+        default_factory=list,
+    )
+
+    technical_keywords: List[str] = Field(
+        description="답변에서 언급된 기술 키워드",
+        max_length=10,
+        default_factory=list,
+    )
+
+
+# ==================== Technical Interview ====================
+
+class CandidateProfile(BaseModel):
+    """지원자 프로필"""
+
+    skills: List[str] = Field(description="기술 스택")
+    years_of_experience: float = Field(description="경력 (년)")
+    projects: List[dict] = Field(description="프로젝트 목록", default_factory=list)
+    job_category: str = Field(description="직무 카테고리 (예: Backend, Frontend)")
+
+
+class InterviewQuestion(BaseModel):
+    """면접 질문"""
+
+    question: str = Field(
+        description="면접 질문 (이전 답변을 바탕으로 자연스럽게 깊이 파고들기)",
+        min_length=20,
+        max_length=300,
+    )
+
+    skill: str = Field(
+        description="평가 대상 기술",
+    )
+
+    why: str = Field(
+        description="이 질문을 하는 이유 (채용 담당자용)",
+        min_length=10
+    )
+
+
+class AnswerFeedback(BaseModel):
+    """답변 피드백 (점수 없음)"""
+
+    key_points: List[str] = Field(
+        description="답변에서 발견된 주요 포인트 (다음 질문에 활용)",
+        max_length=5,
+        default_factory=list,
+    )
+
+    mentioned_technologies: List[str] = Field(
+        description="답변에서 언급된 기술/도구",
+        max_length=5,
+        default_factory=list,
+    )
+
+    depth_areas: List[str] = Field(
+        description="더 깊이 파고들 수 있는 영역",
+        max_length=3,
+        default_factory=list,
+        examples=[["캐싱 전략", "동시성 처리", "성능 최적화"]]
+    )
+
+    follow_up_direction: str = Field(
+        description="다음 질문에서 집중할 방향",
+        examples=["Redis 캐싱 전략을 구체적으로 파고들기", "비동기 처리의 에러 핸들링 확인"]
+    )
+
+
+# ==================== Situational Interview ====================
+
+class PersonaDimensions(BaseModel):
+    """페르소나 5개 차원"""
+
+    work_style: Literal["주도형", "협력형", "독립형"]
+    problem_solving: Literal["분석형", "직관형", "실행형"]
+    learning: Literal["체계형", "실험형", "관찰형"]
+    stress_response: Literal["도전형", "안정형", "휴식형"]
+    communication: Literal["논리형", "공감형", "간결형"]
+
+
+class PersonaScores(BaseModel):
+    """페르소나 점수 (각 차원별 점수)"""
+
+    work_style: dict[str, float] = Field(default_factory=dict)
+    problem_solving: dict[str, float] = Field(default_factory=dict)
+    learning: dict[str, float] = Field(default_factory=dict)
+    stress_response: dict[str, float] = Field(default_factory=dict)
+    communication: dict[str, float] = Field(default_factory=dict)
+
+
+class FinalPersonaReport(BaseModel):
+    """최종 페르소나 리포트"""
+
+    work_style: str
+    problem_solving: str
+    learning: str
+    stress_response: str
+    communication: str
+    confidence: float = Field(ge=0, le=1, description="신뢰도 0-1")
+    summary: str = Field(description="요약 (예: 협력적이며 논리적인 분석가형)")
+    team_fit: str = Field(description="적합한 팀 환경")

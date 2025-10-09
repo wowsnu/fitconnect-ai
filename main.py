@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 from api.routes import api_router
+from api.interview_routes import interview_router
 from config import get_settings
 
 settings = get_settings()
@@ -36,6 +37,7 @@ app.add_middleware(
 
 # Include API routes
 app.include_router(api_router, prefix="/api", tags=["API"])
+app.include_router(interview_router, prefix="/api")
 
 @app.get("/")
 async def root():

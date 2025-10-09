@@ -35,7 +35,7 @@ def generate_candidate_profile_card(
         CandidateProfileCard
     """
     # 기술 면접에서 평가된 스킬 요약
-    evaluated_skills = list(technical_results.get("skill_evaluations", {}).keys()) if technical_results else []
+    evaluated_skills = technical_results.get("skills_evaluated", []) if technical_results else []
     skills_summary = ", ".join(evaluated_skills) if evaluated_skills else ", ".join(candidate_profile.skills[:3])
 
     prompt = ChatPromptTemplate.from_messages([

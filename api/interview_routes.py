@@ -16,7 +16,8 @@ from datetime import datetime
 from ai.interview.general import GeneralInterview, analyze_general_interview
 from ai.interview.technical import TechnicalInterview
 from ai.interview.situational import SituationalInterview
-from ai.interview.models import CandidateProfile
+from ai.interview.profile_analysis import generate_candidate_profile_card
+from ai.interview.models import CandidateProfile, CandidateProfileCard
 from ai.stt.service import get_stt_service
 
 
@@ -699,3 +700,64 @@ async def get_persona_report(session_id: str):
         summary=report.summary,
         recommended_team_environment=report.team_fit
     )
+
+
+@interview_router.get("/profile-card/{session_id}", response_model=CandidateProfileCard)
+async def get_profile_card(session_id: str):
+    """
+    프로필 분석 카드 조회
+
+    모든 면접(General + Technical + Situational)이 완료된 후 호출
+    3가지 면접 결과를 종합하여 프로필 카드 생성
+
+    Args:
+        session_id: 세션 ID
+
+    Returns:
+        CandidateProfileCard (주요 경험, 강점, 역량 등)
+    """
+    # 세션 확인
+    if session_id not in interview_sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = interview_sessions[session_id]
+
+    # 모든 면접 완료 확인
+    if not session.interview.is_finished():
+        raise HTTPException(
+            status_code=400,
+            detail="General interview not completed"
+        )
+
+    if not session.technical_interview or not session.technical_interview.is_finished():
+        raise HTTPException(
+            status_code=400,
+            detail="Technical interview not completed"
+        )
+
+    if not session.situational_interview or not session.situational_interview.is_finished():
+        raise HTTPException(
+            status_code=400,
+            detail="Situational interview not completed"
+        )
+
+    # 일반 면접 분석 (캐시 확인)
+    if not session.general_analysis:
+        answers = session.interview.get_answers()
+        session.general_analysis = analyze_general_interview(answers)
+
+    # 상황 면접 리포트 생성
+    situational_report = session.situational_interview.get_final_report()
+
+    # 기술 면접 결과 (간단하게)
+    technical_results = session.technical_interview.get_results() if session.technical_interview else {}
+
+    # 프로필 카드 생성 (분석 결과만 사용)
+    profile_card = generate_candidate_profile_card(
+        candidate_profile=session.technical_interview.profile,
+        general_analysis=session.general_analysis,
+        technical_results=technical_results,
+        situational_report=situational_report
+    )
+
+    return profile_card

@@ -133,3 +133,46 @@ class FinalPersonaReport(BaseModel):
     confidence: float = Field(ge=0, le=1, description="신뢰도 0-1")
     summary: str = Field(description="요약 (예: 협력적이며 논리적인 분석가형)")
     team_fit: str = Field(description="적합한 팀 환경")
+
+
+class CompetencyItem(BaseModel):
+    """역량 항목"""
+    name: str = Field(description="역량명")
+    level: str = Field(description="수준: 높음/보통/낮음")
+
+
+class CandidateProfileCard(BaseModel):
+    """지원자 프로필 분석 카드"""
+
+    candidate_name: str = Field(description="지원자 이름")
+    role: str = Field(description="지원 직무")
+    experience_years: float = Field(description="경력 연수")
+    company: str = Field(description="현재 회사", default="")
+
+    key_experiences: list[str] = Field(
+        description="주요 경험/경력 (4개)",
+        min_length=4,
+        max_length=4
+    )
+
+    strengths: list[str] = Field(
+        description="강점 (4개)",
+        min_length=4,
+        max_length=4
+    )
+
+    core_competencies: list[CompetencyItem] = Field(
+        description="핵심 일반 역량 (4개)",
+        min_length=4,
+        max_length=4
+    )
+
+    technical_skills: list[CompetencyItem] = Field(
+        description="핵심 직무 역량/기술 (4개)",
+        min_length=4,
+        max_length=4
+    )
+
+    job_fit: str = Field(description="직무 적합성 요약")
+    team_fit: str = Field(description="협업 성향 요약")
+    growth_potential: str = Field(description="성장 가능성 요약")

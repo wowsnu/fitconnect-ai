@@ -89,6 +89,37 @@ class BackendAPIClient:
 
             return data.get("data", {})
 
+    async def post_talent_card(self, talent_card_data: dict, access_token: str) -> dict:
+        """
+        인재 프로필 카드 전송 (POST /api/talent_cards/)
+
+        Args:
+            talent_card_data: 백엔드 형식의 카드 데이터
+            access_token: JWT 액세스 토큰
+
+        Returns:
+            생성된 카드 정보 dict
+
+        Raises:
+            httpx.HTTPStatusError: API 호출 실패
+        """
+        url = f"{self.backend_url}/api/talent_cards/"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(url, headers=headers, json=talent_card_data)
+            response.raise_for_status()
+
+            data = response.json()
+
+            if not data.get("ok"):
+                raise ValueError(f"Backend API returned ok=false: {data}")
+
+            return data.get("data", {})
+
 
 # 싱글톤 인스턴스
 _client_instance = None

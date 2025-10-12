@@ -220,6 +220,64 @@ class CompetencyItem(BaseModel):
     level: str = Field(description="수준: 높음/보통/낮음")
 
 
+class GeneralInterviewCardPart(BaseModel):
+    """구조화 면접에서 추출한 카드 정보 (1, 3)"""
+
+    key_experiences: list[str] = Field(
+        description="주요 경험/경력 (4개)",
+        min_length=4,
+        max_length=4
+    )
+
+    core_competencies: list[CompetencyItem] = Field(
+        description="핵심 일반 역량 (4개)",
+        min_length=4,
+        max_length=4
+    )
+
+
+class TechnicalInterviewCardPart(BaseModel):
+    """직무적합성 면접에서 추출한 카드 정보 (2, 4)"""
+
+    strengths: list[str] = Field(
+        description="강점 (4개)",
+        min_length=4,
+        max_length=4
+    )
+
+    technical_skills: list[CompetencyItem] = Field(
+        description="핵심 직무 역량/기술 (4개)",
+        min_length=4,
+        max_length=4
+    )
+
+
+class SituationalInterviewCardPart(BaseModel):
+    """상황 면접에서 추출한 카드 정보 (5, 6, 7 + 보완)"""
+
+    job_fit: str = Field(description="직무 적합성 요약")
+    team_fit: str = Field(description="협업 성향 요약")
+    growth_potential: str = Field(description="성장 가능성 요약")
+
+    # 부족한 부분 보완 (Optional)
+    additional_experiences: list[str] = Field(
+        description="추가 주요 경험 (부족시)",
+        default_factory=list
+    )
+    additional_strengths: list[str] = Field(
+        description="추가 강점 (부족시)",
+        default_factory=list
+    )
+    additional_competencies: list[CompetencyItem] = Field(
+        description="추가 일반 역량 (부족시)",
+        default_factory=list
+    )
+    additional_technical: list[CompetencyItem] = Field(
+        description="추가 직무 역량 (부족시)",
+        default_factory=list
+    )
+
+
 class CandidateProfileCard(BaseModel):
     """지원자 프로필 분석 카드"""
 

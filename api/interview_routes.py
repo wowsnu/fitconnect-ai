@@ -11,12 +11,19 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional
 import uuid
+import json
 from datetime import datetime
 
 from ai.interview.general import GeneralInterview, analyze_general_interview
 from ai.interview.technical import TechnicalInterview
 from ai.interview.situational import SituationalInterview
-from ai.interview.profile_analysis import generate_candidate_profile_card
+from ai.interview.profile_analysis import (
+    generate_candidate_profile_card,
+    analyze_general_interview as analyze_general_for_card,
+    analyze_technical_interview as analyze_technical_for_card,
+    analyze_situational_interview as analyze_situational_for_card,
+    convert_card_to_backend_format
+)
 from ai.interview.models import CandidateProfile, CandidateProfileCard
 from ai.interview.client import get_backend_client
 from ai.stt.service import get_stt_service
@@ -715,25 +722,48 @@ async def get_persona_report(session_id: str):
     )
 
 
-@interview_router.get("/profile-card/{session_id}", response_model=CandidateProfileCard)
-async def get_profile_card(session_id: str):
-    """
-    프로필 분석 카드 조회
+# ==================== Profile Card Generation & POST ====================
 
-    모든 면접(General + Technical + Situational)이 완료된 후 호출
-    3가지 면접 결과를 종합하여 프로필 카드 생성
+class GenerateAndPostCardRequest(BaseModel):
+    """프로필 카드 생성 및 백엔드 전송 요청"""
+    session_id: str
+    access_token: str  # JWT 토큰
+
+
+class GenerateAndPostCardResponse(BaseModel):
+    """프로필 카드 생성 및 전송 응답"""
+    success: bool
+    card: CandidateProfileCard
+    backend_response: dict  # 백엔드 API 응답
+
+
+@interview_router.post("/profile-card/generate-and-post", response_model=GenerateAndPostCardResponse)
+async def generate_and_post_profile_card(request: GenerateAndPostCardRequest):
+    """
+    프로필 카드 생성 및 백엔드 전송
+
+    전체 플로우:
+    1. 3가지 면접 완료 확인
+    2. 각 면접별 카드 파트 추출:
+       - General: key_experiences + core_competencies
+       - Technical: strengths + technical_skills
+       - Situational: job_fit + team_fit + growth_potential + 보완
+    3. 3가지 파트 통합하여 최종 카드 생성
+    4. 백엔드 API 형식으로 변환
+    5. POST /api/talent_cards/
 
     Args:
         session_id: 세션 ID
+        access_token: JWT 액세스 토큰
 
     Returns:
-        CandidateProfileCard (주요 경험, 강점, 역량 등)
+        생성된 카드 + 백엔드 응답
     """
     # 세션 확인
-    if session_id not in interview_sessions:
+    if request.session_id not in interview_sessions:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    session = interview_sessions[session_id]
+    session = interview_sessions[request.session_id]
 
     # 모든 면접 완료 확인
     if not session.interview.is_finished():
@@ -754,23 +784,71 @@ async def get_profile_card(session_id: str):
             detail="Situational interview not completed"
         )
 
-    # 일반 면접 분석 (캐시 확인)
+    # 프로필 가져오기
+    profile = session.technical_interview.profile
+
+    # 1. General Interview 분석 (캐시 확인)
     if not session.general_analysis:
         answers = session.interview.get_answers()
         session.general_analysis = analyze_general_interview(answers)
 
-    # 상황 면접 리포트 생성
-    situational_report = session.situational_interview.get_final_report()
+    # General Interview 원본 Q&A
+    general_qa = session.interview.get_answers()  # [{"question": ..., "answer": ...}, ...]
 
-    # 기술 면접 결과 (간단하게)
-    technical_results = session.technical_interview.get_results() if session.technical_interview else {}
-
-    # 프로필 카드 생성 (분석 결과만 사용)
-    profile_card = generate_candidate_profile_card(
-        candidate_profile=session.technical_interview.profile,
+    # 2. General Interview 카드 파트 추출
+    general_part = analyze_general_for_card(
+        candidate_profile=profile,
         general_analysis=session.general_analysis,
-        technical_results=technical_results,
-        situational_report=situational_report
+        answers=general_qa
     )
 
-    return profile_card
+    # 3. Technical Interview 카드 파트 추출
+    technical_results = session.technical_interview.get_results()
+    technical_part = analyze_technical_for_card(
+        candidate_profile=profile,
+        technical_results=technical_results
+    )
+
+    # 4. Situational Interview 카드 파트 추출
+    situational_report = session.situational_interview.get_final_report()
+    situational_qa = session.situational_interview.qa_history
+
+    situational_part = analyze_situational_for_card(
+        candidate_profile=profile,
+        situational_report=situational_report,
+        qa_history=situational_qa,
+        general_part=general_part,
+        technical_part=technical_part
+    )
+
+    # 5. 3가지 파트 통합하여 최종 카드 생성
+    final_card = generate_candidate_profile_card(
+        candidate_profile=profile,
+        general_part=general_part,
+        technical_part=technical_part,
+        situational_part=situational_part
+    )
+
+    # 6. 백엔드 API 형식으로 변환
+    backend_data = convert_card_to_backend_format(final_card, profile)
+
+    # 디버깅: 전송할 데이터 로깅
+    print(f"[DEBUG] Backend data to send: {json.dumps(backend_data, ensure_ascii=False, indent=2)}")
+
+    # 7. 백엔드에 POST
+    backend_client = get_backend_client()
+    try:
+        backend_response = await backend_client.post_talent_card(backend_data, request.access_token)
+    except Exception as e:
+        print(f"[ERROR] Failed to post talent card: {str(e)}")
+        print(f"[ERROR] Data sent: {backend_data}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to post talent card to backend: {str(e)}"
+        )
+
+    return GenerateAndPostCardResponse(
+        success=True,
+        card=final_card,
+        backend_response=backend_response
+    )

@@ -72,16 +72,55 @@ def generate_personalized_question(
 - 아키텍처, 성능 최적화, 트레이드오프, 설계 결정
 - 대규모 환경, 엣지 케이스, 실제 프로덕션 경험"""
 
-    # 프로젝트 정보를 문자열로 변환
-    projects_str = ", ".join([p.get("name", "Unknown") for p in profile.projects])
+    # 프로필에서 정보 추출
+    job_category = profile.basic.tagline if profile.basic else "개발자"
+
+    # 경력 정보에서 기술 스택 추출
+    skills: List[str] = []
+    for exp in profile.experiences:
+        if exp.summary:
+            # summary에서 기술 키워드 추출 (간단한 방식)
+            skills.extend([kw.strip() for kw in exp.summary.split(',') if kw.strip()])
+
+    # 자격증에서도 기술 추가
+    skills.extend([cert.name for cert in profile.certifications])
+
+    # 중복 제거 및 길이 제한
+    unique_skills = sorted({skill for skill in skills if skill})
+    skills = unique_skills[:10]
+
+    # 총 경력 계산 (미기입 시 0으로 처리)
+    total_experience = sum((exp.duration_years or 0) for exp in profile.experiences)
+
+    # 경력사항 요약
+    experience_entries = []
+    for exp in profile.experiences:
+        duration_text = f"{exp.duration_years}년" if exp.duration_years is not None else "기간 정보 없음"
+        experience_entries.append(f"- {exp.company_name} / {exp.title} ({duration_text})")
+    experience_summary = "\n".join(experience_entries)
+
+    # 활동 요약
+    activities_summary = "\n".join([
+        f"- {act.name} ({act.category}): {act.description or ''}"
+        for act in profile.activities
+    ])
 
     prompt = ChatPromptTemplate.from_messages([
-        ("system", f"""당신은 {profile.job_category} 기술 면접관입니다.
+        ("system", f"""당신은 {job_category} 기술 면접관입니다.
 
 **지원자 프로필:**
-- 기술 스택: {", ".join(profile.skills)}
-- 경력: {profile.years_of_experience}년
-- 프로젝트: {projects_str}
+- 이름: {profile.basic.name if profile.basic else "지원자"}
+- 직무: {job_category}
+- 총 경력: {total_experience}년
+
+**경력사항:**
+{experience_summary}
+
+**활동/프로젝트:**
+{activities_summary}
+
+**추출된 기술 키워드:**
+{", ".join(skills) if skills else "정보 없음"}
 
 **구조화 면접에서 파악된 특성:**
 - 주요 테마: {", ".join(general_analysis.key_themes)}
@@ -210,7 +249,23 @@ class TechnicalInterview:
         2. 프로필에만 있는 기술
         """
         mentioned_skills = set(self.general_analysis.technical_keywords)
-        profile_skills = self.profile.skills
+
+        # 프로필에서 기술 추출
+        profile_skills = []
+
+        # 경력 summary에서 추출
+        for exp in self.profile.experiences:
+            if exp.summary:
+                profile_skills.extend([kw.strip() for kw in exp.summary.split(',') if kw.strip()])
+
+        # 직무명(title)도 추가
+        profile_skills.extend([exp.title for exp in self.profile.experiences])
+
+        # 자격증도 추가
+        profile_skills.extend([cert.name for cert in self.profile.certifications])
+
+        # 중복 제거
+        profile_skills = list(set(profile_skills))
 
         # 1순위: 언급된 기술
         priority_skills = [s for s in profile_skills if s in mentioned_skills]
@@ -221,6 +276,10 @@ class TechnicalInterview:
         # 합쳐서 num_skills개 선택
         selected = (priority_skills + other_skills)[:num_skills]
 
+        # 만약 추출된 기술이 없으면 기본값
+        if not selected:
+            default_skills = ["직무 전반", "프로젝트 경험", "문제 해결 능력"]
+            selected = default_skills[:num_skills]
         return selected
 
     def get_next_question(self) -> Optional[dict]:

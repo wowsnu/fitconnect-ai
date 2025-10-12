@@ -75,9 +75,21 @@ def generate_candidate_profile_card(
 """),
         ("user", f"""
 ## 지원자 기본 정보
-- 직무: {candidate_profile.job_category}
-- 경력: {candidate_profile.years_of_experience}년
-- 기술 스택: {', '.join(candidate_profile.skills)}
+- 이름: {candidate_profile.basic.name if candidate_profile.basic else "지원자"}
+- 직무: {candidate_profile.basic.tagline if candidate_profile.basic else "개발자"}
+- 총 경력: {sum(exp.duration_years for exp in candidate_profile.experiences)}년
+
+## 경력사항
+{chr(10).join([f"- {exp.company_name} / {exp.title} ({exp.duration_years}년)" for exp in candidate_profile.experiences]) if candidate_profile.experiences else "정보 없음"}
+
+## 학력
+{chr(10).join([f"- {edu.school_name} / {edu.major or ''} ({edu.status})" for edu in candidate_profile.educations]) if candidate_profile.educations else "정보 없음"}
+
+## 활동/프로젝트
+{chr(10).join([f"- {act.name} ({act.category})" for act in candidate_profile.activities]) if candidate_profile.activities else "정보 없음"}
+
+## 자격증
+{chr(10).join([f"- {cert.name}" for cert in candidate_profile.certifications]) if candidate_profile.certifications else "정보 없음"}
 
 ## 구조화 면접 분석 결과
 - 주요 테마: {', '.join(general_analysis.key_themes)}
@@ -88,7 +100,6 @@ def generate_candidate_profile_card(
 
 ## 기술 면접 분석 결과
 - 평가된 기술: {skills_summary}
-- 전문성: {candidate_profile.years_of_experience}년 경력의 {candidate_profile.job_category}
 
 ## 상황 면접 페르소나 분석
 - 업무 스타일: {situational_report.work_style}
@@ -114,9 +125,9 @@ def generate_candidate_profile_card(
     result = (prompt | llm).invoke({})
 
     # 기본 프로필 정보는 확정값 사용
-    result.candidate_name = "지원자"  # TODO: 실제 이름으로 교체
-    result.role = candidate_profile.job_category
-    result.experience_years = candidate_profile.years_of_experience
-    result.company = ""  # TODO: 프로필에서 가져오기
+    result.candidate_name = candidate_profile.basic.name if candidate_profile.basic else "지원자"
+    result.role = candidate_profile.basic.tagline if candidate_profile.basic else "개발자"
+    result.experience_years = sum(exp.duration_years for exp in candidate_profile.experiences)
+    result.company = candidate_profile.experiences[0].company_name if candidate_profile.experiences else ""
 
     return result

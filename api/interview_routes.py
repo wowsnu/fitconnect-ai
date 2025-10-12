@@ -18,6 +18,7 @@ from ai.interview.technical import TechnicalInterview
 from ai.interview.situational import SituationalInterview
 from ai.interview.profile_analysis import generate_candidate_profile_card
 from ai.interview.models import CandidateProfile, CandidateProfileCard
+from ai.interview.client import get_backend_client
 from ai.stt.service import get_stt_service
 
 
@@ -278,7 +279,7 @@ async def delete_session(session_id: str):
 class StartTechnicalRequest(BaseModel):
     """직무 적합성 면접 시작 요청"""
     session_id: str
-    profile: CandidateProfile
+    access_token: str  # JWT 토큰 (백엔드 API 호출용)
 
 
 class TechnicalQuestionResponse(BaseModel):
@@ -311,7 +312,7 @@ async def start_technical_interview(request: StartTechnicalRequest):
 
     Args:
         session_id: 구조화 면접 세션 ID
-        profile: 지원자 프로필
+        access_token: JWT 액세스 토큰 (백엔드 API 호출용)
 
     Returns:
         첫 질문
@@ -334,9 +335,21 @@ async def start_technical_interview(request: StartTechnicalRequest):
         answers = session.interview.get_answers()
         session.general_analysis = analyze_general_interview(answers)
 
+    # 백엔드 API에서 프로필 가져오기
+    backend_client = get_backend_client()
+    try:
+        # TODO: user_id는 세션에서 가져오거나 JWT에서 파싱
+        user_id = 1  # 임시값
+        profile = await backend_client.get_talent_profile(user_id, request.access_token)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch profile from backend: {str(e)}"
+        )
+
     # Technical Interview 초기화
     session.technical_interview = TechnicalInterview(
-        profile=request.profile,
+        profile=profile,
         general_analysis=session.general_analysis
     )
 

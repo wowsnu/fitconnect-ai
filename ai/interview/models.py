@@ -44,13 +44,92 @@ class GeneralInterviewAnalysis(BaseModel):
 
 # ==================== Technical Interview ====================
 
-class CandidateProfile(BaseModel):
-    """지원자 프로필"""
+class TalentBasic(BaseModel):
+    """인재 기본 정보"""
+    user_id: int
+    name: Optional[str] = None
+    birth_date: Optional[str] = None
+    phone: Optional[str] = None
+    tagline: Optional[str] = None
+    profile_step: Optional[int] = None
+    is_submitted: bool
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
-    skills: List[str] = Field(description="기술 스택")
-    years_of_experience: float = Field(description="경력 (년)")
-    projects: List[dict] = Field(description="프로젝트 목록", default_factory=list)
-    job_category: str = Field(description="직무 카테고리 (예: Backend, Frontend)")
+
+class Experience(BaseModel):
+    """경력 정보"""
+    id: int
+    user_id: int
+    company_name: str
+    title: str
+    start_ym: Optional[str] = None
+    end_ym: Optional[str] = None
+    duration_years: Optional[int] = None
+    leave_reason: Optional[str] = None
+    summary: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class Education(BaseModel):
+    """학력 정보"""
+    id: int
+    user_id: int
+    school_name: str
+    major: Optional[str] = None
+    status: str
+    start_ym: Optional[str] = None
+    end_ym: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class Activity(BaseModel):
+    """활동 정보"""
+    id: int
+    user_id: int
+    name: str
+    category: Optional[str] = None
+    period_ym: Optional[str] = None
+    description: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class Certification(BaseModel):
+    """자격증 정보"""
+    id: int
+    user_id: int
+    name: str
+    score_or_grade: Optional[str] = None
+    acquired_ym: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class Document(BaseModel):
+    """문서 정보"""
+    id: int
+    user_id: int
+    doc_type: str
+    storage_url: str
+    original_name: str
+    mime_type: Optional[str] = None
+    file_size: Optional[int] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class CandidateProfile(BaseModel):
+    """지원자 전체 프로필 (백엔드 API 응답 형식)"""
+
+    basic: Optional[TalentBasic] = None
+    experiences: List[Experience] = Field(default_factory=list)
+    educations: List[Education] = Field(default_factory=list)
+    activities: List[Activity] = Field(default_factory=list)
+    certifications: List[Certification] = Field(default_factory=list)
+    documents: List[Document] = Field(default_factory=list)
 
 
 class InterviewQuestion(BaseModel):

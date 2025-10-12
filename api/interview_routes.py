@@ -852,3 +852,128 @@ async def generate_and_post_profile_card(request: GenerateAndPostCardRequest):
         card=final_card,
         backend_response=backend_response
     )
+
+
+# ==================== Matching Vector Generation ====================
+
+class GenerateMatchingVectorsRequest(BaseModel):
+    """매칭 벡터 생성 요청"""
+    session_id: str
+
+
+class GenerateMatchingVectorsResponse(BaseModel):
+    """매칭 벡터 생성 응답"""
+    success: bool
+    texts: dict  # 6가지 텍스트
+    vectors: dict  # 6가지 벡터 (각 1536 dimensions)
+
+
+@interview_router.post("/matching-vectors/generate", response_model=GenerateMatchingVectorsResponse)
+async def generate_matching_vectors(request: GenerateMatchingVectorsRequest):
+    """
+    인재 매칭 벡터 생성
+
+    3가지 면접 결과를 바탕으로 6가지 매칭 벡터 생성:
+    1. 역할 적합도/역할 수행력
+    2. 역량 적합도
+    3. 성장 가능성
+    4. 커리어 방향
+    5. 비전/협업 기여도
+    6. 조직/문화 적합도
+
+    Args:
+        session_id: 세션 ID
+
+    Returns:
+        생성된 6가지 텍스트 + 벡터
+    """
+    from ai.matching.vector_generator import generate_talent_matching_vectors
+
+    # 세션 확인
+    if request.session_id not in interview_sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = interview_sessions[request.session_id]
+
+    # 모든 면접 완료 확인
+    if not session.interview.is_finished():
+        raise HTTPException(
+            status_code=400,
+            detail="General interview not completed"
+        )
+
+    if not session.technical_interview or not session.technical_interview.is_finished():
+        raise HTTPException(
+            status_code=400,
+            detail="Technical interview not completed"
+        )
+
+    if not session.situational_interview or not session.situational_interview.is_finished():
+        raise HTTPException(
+            status_code=400,
+            detail="Situational interview not completed"
+        )
+
+    # 프로필 가져오기
+    profile = session.technical_interview.profile
+
+    # General Interview 분석 (캐시 확인)
+    if not session.general_analysis:
+        answers = session.interview.get_answers()
+        session.general_analysis = analyze_general_interview(answers)
+
+    # Profile Card 확인/생성
+    # (이미 생성되어 있다면 재사용, 없으면 새로 생성)
+    from ai.interview.profile_analysis import (
+        analyze_general_interview as analyze_general_for_card,
+        analyze_technical_interview as analyze_technical_for_card,
+        analyze_situational_interview as analyze_situational_for_card,
+        generate_candidate_profile_card
+    )
+
+    general_qa = session.interview.get_answers()
+    technical_results = session.technical_interview.get_results()
+    situational_report = session.situational_interview.get_final_report()
+    situational_qa = session.situational_interview.qa_history
+
+    # 카드 파트 추출
+    general_part = analyze_general_for_card(
+        candidate_profile=profile,
+        general_analysis=session.general_analysis,
+        answers=general_qa
+    )
+
+    technical_part = analyze_technical_for_card(
+        candidate_profile=profile,
+        technical_results=technical_results
+    )
+
+    situational_part = analyze_situational_for_card(
+        candidate_profile=profile,
+        situational_report=situational_report,
+        qa_history=situational_qa,
+        general_part=general_part,
+        technical_part=technical_part
+    )
+
+    # 최종 프로필 카드 생성
+    final_card = generate_candidate_profile_card(
+        candidate_profile=profile,
+        general_part=general_part,
+        technical_part=technical_part,
+        situational_part=situational_part
+    )
+
+    # 매칭 벡터 생성 (LLM + Embedding)
+    result = generate_talent_matching_vectors(
+        candidate_profile=profile,
+        general_analysis=session.general_analysis,
+        technical_results=technical_results,
+        situational_report=situational_report
+    )
+
+    return GenerateMatchingVectorsResponse(
+        success=True,
+        texts=result["texts"],
+        vectors=result["vectors"]
+    )

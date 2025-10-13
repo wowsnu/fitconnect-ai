@@ -205,10 +205,20 @@ class FinalPersonaReport(BaseModel):
     """최종 페르소나 리포트"""
 
     work_style: str
+    work_style_reason: str = Field(description="업무 스타일 판단 근거")
+
     problem_solving: str
+    problem_solving_reason: str = Field(description="문제 해결 방식 판단 근거")
+
     learning: str
+    learning_reason: str = Field(description="학습 성향 판단 근거")
+
     stress_response: str
+    stress_response_reason: str = Field(description="스트레스 대응 판단 근거")
+
     communication: str
+    communication_reason: str = Field(description="커뮤니케이션 스타일 판단 근거")
+
     confidence: float = Field(ge=0, le=1, description="신뢰도 0-1")
     summary: str = Field(description="요약 (예: 협력적이며 논리적인 분석가형)")
     team_fit: str = Field(description="적합한 팀 환경")

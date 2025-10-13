@@ -202,7 +202,7 @@ def generate_talent_matching_texts(
 
 ## 6. 조직/문화 적합도 (culture_text)
 
-**목적**: 후보자의 가치관과 성향이 조직 문화와 얼마나 잘 맞는지를 평가합니다. (성향·��치관 중심)
+**목적**: 후보자의 가치관과 성향이 조직 문화와 얼마나 잘 맞는지를 평가합니다. (성향·가치관 중심)
 
 **인재 기준**:
 - 협업 성향 (커뮤니케이션 방식)
@@ -245,10 +245,15 @@ def generate_talent_matching_texts(
 
 ## 상황 면접 페르소나
 - 업무 스타일: {situational_report.work_style}
+  (근거: {situational_report.work_style_reason})
 - 문제 해결: {situational_report.problem_solving}
+  (근거: {situational_report.problem_solving_reason})
 - 학습 성향: {situational_report.learning}
+  (근거: {situational_report.learning_reason})
 - 스트레스 대응: {situational_report.stress_response}
+  (근거: {situational_report.stress_response_reason})
 - 커뮤니케이션: {situational_report.communication}
+  (근거: {situational_report.communication_reason})
 - 요약: {situational_report.summary}
 - 추천 팀 환경: {situational_report.team_fit}
 

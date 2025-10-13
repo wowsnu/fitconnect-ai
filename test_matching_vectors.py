@@ -16,7 +16,7 @@ import json
 BASE_URL = "http://localhost:8000/api"
 
 # 실제 JWT 토큰
-TEST_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMSIsImVtYWlsIjoic2FuZ3dvb0BuYXZlci5jb20iLCJyb2xlIjoidGFsZW50IiwiZXhwIjoxNzYwMzM1NjY5fQ.jrAoXpkLZlHip9CS5LrCscHJMk7cH1vVKU1wWf-hcLY"
+TEST_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMSIsImVtYWlsIjoic2FuZ3dvb0BuYXZlci5jb20iLCJyb2xlIjoidGFsZW50IiwiZXhwIjoxNzYwMzQ2MDIwfQ.QmUCo9-Wd52egwWjdlHG0Z805XMYw7SUIJDFMvD8oAE"
 
 
 def test_matching_vectors_generation():

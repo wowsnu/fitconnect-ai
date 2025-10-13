@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     # CORS
     BACKEND_CORS_ORIGINS: list = ["http://localhost:3000", "http://localhost:8080"]
 
+    # Backend API URL (for calling main backend from AI service)
+    BACKEND_API_URL: str = "http://localhost:8000"
+
     class Config:
         env_file = ".env"
         case_sensitive = True

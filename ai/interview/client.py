@@ -120,6 +120,41 @@ class BackendAPIClient:
 
             return data.get("data", {})
 
+    async def post_matching_vectors(self, vectors_data: dict, access_token: str, role: str = "talent") -> dict:
+        """
+        매칭 벡터 전송 (POST /api/me/matching-vectors)
+
+        Args:
+            vectors_data: 매칭 벡터 데이터 (vector_roles, vector_skills, etc.)
+            access_token: JWT 액세스 토큰
+            role: "talent" 또는 "company"
+
+        Returns:
+            저장된 벡터 정보 dict
+
+        Raises:
+            httpx.HTTPStatusError: API 호출 실패
+        """
+        url = f"{self.backend_url}/api/me/matching-vectors"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+
+        # role 필드 추가
+        payload = {**vectors_data, "role": role}
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+
+            data = response.json()
+
+            if not data.get("ok"):
+                raise ValueError(f"Backend API returned ok=false: {data}")
+
+            return data.get("data", {})
+
 
 # 싱글톤 인스턴스
 _client_instance = None

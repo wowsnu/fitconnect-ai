@@ -859,6 +859,7 @@ async def generate_and_post_profile_card(request: GenerateAndPostCardRequest):
 class GenerateMatchingVectorsRequest(BaseModel):
     """매칭 벡터 생성 요청"""
     session_id: str
+    access_token: str  # JWT 토큰
 
 
 class GenerateMatchingVectorsResponse(BaseModel):
@@ -866,6 +867,7 @@ class GenerateMatchingVectorsResponse(BaseModel):
     success: bool
     texts: dict  # 6가지 텍스트
     vectors: dict  # 6가지 벡터 (각 1536 dimensions)
+    backend_response: dict  # 백엔드 응답
 
 
 @interview_router.post("/matching-vectors/generate", response_model=GenerateMatchingVectorsResponse)
@@ -972,8 +974,23 @@ async def generate_matching_vectors(request: GenerateMatchingVectorsRequest):
         situational_report=situational_report
     )
 
+    # 백엔드에 매칭 벡터 POST
+    backend_client = get_backend_client()
+    try:
+        backend_response = await backend_client.post_matching_vectors(
+            vectors_data=result["vectors"],
+            access_token=request.access_token
+        )
+    except Exception as e:
+        print(f"[ERROR] Failed to post matching vectors: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to post matching vectors to backend: {str(e)}"
+        )
+
     return GenerateMatchingVectorsResponse(
         success=True,
         texts=result["texts"],
-        vectors=result["vectors"]
+        vectors=result["vectors"],
+        backend_response=backend_response
     )

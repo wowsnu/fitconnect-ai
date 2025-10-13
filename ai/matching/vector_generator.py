@@ -328,9 +328,6 @@ def generate_talent_matching_vectors(
             "vision_text": texts.vision_text,
             "culture_text": texts.culture_text
         },
-        "vectors": {
-            **vectors,
-            "role": "talent"
-        }
+        "vectors": vectors
     }
 

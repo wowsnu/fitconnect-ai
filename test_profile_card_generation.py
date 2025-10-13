@@ -20,7 +20,7 @@ import json
 BASE_URL = "http://localhost:8000/api"
 
 # 실제 JWT 토큰
-TEST_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMSIsImVtYWlsIjoic2FuZ3dvb0BuYXZlci5jb20iLCJyb2xlIjoidGFsZW50IiwiZXhwIjoxNzYwMjg4OTM3fQ.neoG4RZ7NVHZNvDWa3_O9aN-qXocprMOLN4vqfP7yB0"
+TEST_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMSIsImVtYWlsIjoic2FuZ3dvb0BuYXZlci5jb20iLCJyb2xlIjoidGFsZW50IiwiZXhwIjoxNzYwMzM1NjY5fQ.jrAoXpkLZlHip9CS5LrCscHJMk7cH1vVKU1wWf-hcLY"
 
 # 백엔드 서버 URL
 BACKEND_URL = "http://54.89.71.175:8000"

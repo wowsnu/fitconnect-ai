@@ -16,7 +16,7 @@ import json
 BASE_URL = "http://localhost:8000/api"
 
 # 실제 JWT 토큰
-TEST_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMSIsImVtYWlsIjoic2FuZ3dvb0BuYXZlci5jb20iLCJyb2xlIjoidGFsZW50IiwiZXhwIjoxNzYwMjg4OTM3fQ.neoG4RZ7NVHZNvDWa3_O9aN-qXocprMOLN4vqfP7yB0"
+TEST_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMSIsImVtYWlsIjoic2FuZ3dvb0BuYXZlci5jb20iLCJyb2xlIjoidGFsZW50IiwiZXhwIjoxNzYwMzM1NjY5fQ.jrAoXpkLZlHip9CS5LrCscHJMk7cH1vVKU1wWf-hcLY"
 
 
 def test_matching_vectors_generation():
@@ -146,7 +146,7 @@ def test_matching_vectors_generation():
     print("\n[7단계] 매칭 벡터 생성 (LLM + 임베딩 - 10-20초 소요)")
     response = requests.post(
         f"{BASE_URL}/interview/matching-vectors/generate",
-        json={"session_id": session_id}
+        json={"session_id": session_id, "access_token": TEST_ACCESS_TOKEN}
     )
 
     if response.status_code != 200:
@@ -184,18 +184,18 @@ def test_matching_vectors_generation():
     print("\n" + "=" * 80)
     print("벡터 정보")
     print("=" * 80)
-    print(f"✅ Role: {vectors['role']}")
-    print(f"✅ vector_roles: {len(vectors['vector_roles'])} dimensions - {vectors['vector_roles'][:5]}...")
-    print(f"✅ vector_skills: {len(vectors['vector_skills'])} dimensions - {vectors['vector_skills'][:5]}...")
-    print(f"✅ vector_growth: {len(vectors['vector_growth'])} dimensions - {vectors['vector_growth'][:5]}...")
-    print(f"✅ vector_career: {len(vectors['vector_career'])} dimensions - {vectors['vector_career'][:5]}...")
-    print(f"✅ vector_vision: {len(vectors['vector_vision'])} dimensions - {vectors['vector_vision'][:5]}...")
-    print(f"✅ vector_culture: {len(vectors['vector_culture'])} dimensions - {vectors['vector_culture'][:5]}...")
+    print(f"✅ vector_roles: {len(vectors['vector_roles']['embedding'])} dimensions - {vectors['vector_roles']['embedding'][:3]}...")
+    print(f"✅ vector_skills: {len(vectors['vector_skills']['embedding'])} dimensions - {vectors['vector_skills']['embedding'][:3]}...")
+    print(f"✅ vector_growth: {len(vectors['vector_growth']['embedding'])} dimensions - {vectors['vector_growth']['embedding'][:3]}...")
+    print(f"✅ vector_career: {len(vectors['vector_career']['embedding'])} dimensions - {vectors['vector_career']['embedding'][:3]}...")
+    print(f"✅ vector_vision: {len(vectors['vector_vision']['embedding'])} dimensions - {vectors['vector_vision']['embedding'][:3]}...")
+    print(f"✅ vector_culture: {len(vectors['vector_culture']['embedding'])} dimensions - {vectors['vector_culture']['embedding'][:3]}...")
 
     print("\n" + "=" * 80)
-    print("백엔드 POST 형식 (vectors만)")
+    print("백엔드 POST 결과")
     print("=" * 80)
-    print(json.dumps(vectors, indent=2, ensure_ascii=False)[:500] + "...")
+    backend_response = data.get('backend_response', {})
+    print(json.dumps(backend_response, indent=2, ensure_ascii=False))
 
     print("\n" + "=" * 80)
     print("✅ 테스트 완료!")

@@ -83,12 +83,12 @@ def embed_matching_texts(
 
     Returns:
         {
-            "vector_roles": [float, ...],
-            "vector_skills": [float, ...],
-            "vector_growth": [float, ...],
-            "vector_career": [float, ...],
-            "vector_vision": [float, ...],
-            "vector_culture": [float, ...]
+            "vector_roles": {"embedding": [float, ...]},
+            "vector_skills": {"embedding": [float, ...]},
+            "vector_growth": {"embedding": [float, ...]},
+            "vector_career": {"embedding": [float, ...]},
+            "vector_vision": {"embedding": [float, ...]},
+            "vector_culture": {"embedding": [float, ...]}
         }
     """
     service = get_embedding_service()
@@ -106,10 +106,10 @@ def embed_matching_texts(
     vectors = service.embed_texts(texts)
 
     return {
-        "vector_roles": vectors[0],
-        "vector_skills": vectors[1],
-        "vector_growth": vectors[2],
-        "vector_career": vectors[3],
-        "vector_vision": vectors[4],
-        "vector_culture": vectors[5]
+        "vector_roles": {"embedding": vectors[0]},
+        "vector_skills": {"embedding": vectors[1]},
+        "vector_growth": {"embedding": vectors[2]},
+        "vector_career": {"embedding": vectors[3]},
+        "vector_vision": {"embedding": vectors[4]},
+        "vector_culture": {"embedding": vectors[5]}
     }

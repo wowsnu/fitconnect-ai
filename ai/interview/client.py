@@ -41,7 +41,7 @@ class BackendAPIClient:
             "Content-Type": "application/json"
         }
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
 
@@ -78,7 +78,7 @@ class BackendAPIClient:
             "Content-Type": "application/json"
         }
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
 
@@ -109,7 +109,7 @@ class BackendAPIClient:
             "Content-Type": "application/json"
         }
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
             response = await client.post(url, headers=headers, json=talent_card_data)
             response.raise_for_status()
 
@@ -144,7 +144,7 @@ class BackendAPIClient:
         # role 필드 추가
         payload = {**vectors_data, "role": role}
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
             response = await client.post(url, headers=headers, json=payload)
             response.raise_for_status()
 
@@ -174,7 +174,7 @@ class BackendAPIClient:
             "Content-Type": "application/json"
         }
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
 
@@ -206,7 +206,7 @@ class BackendAPIClient:
             "Content-Type": "application/json"
         }
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
             response = await client.get(url, headers=headers)
             response.raise_for_status()
 
@@ -223,6 +223,42 @@ class BackendAPIClient:
                     return posting
 
             raise ValueError(f"Job posting with id {job_posting_id} not found")
+
+    async def create_job_posting(self, access_token: str, job_posting_data: dict) -> dict:
+        """
+        채용공고 생성 (POST /api/me/company/job-postings)
+
+        Args:
+            access_token: JWT 액세스 토큰
+            job_posting_data: 채용공고 데이터 (선택적 필드 포함)
+
+        Returns:
+            생성된 채용공고 정보 dict
+
+        Raises:
+            httpx.HTTPStatusError: API 호출 실패
+            ValueError: API 응답 오류
+        """
+        url = f"{self.backend_url}/api/me/company/job-postings"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+
+        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
+            response = await client.post(url, headers=headers, json=job_posting_data)
+
+            # 201 Created도 성공으로 처리
+            if response.status_code not in [200, 201]:
+                error_detail = response.text
+                raise ValueError(f"Backend API error {response.status_code}: {error_detail}")
+
+            data = response.json()
+
+            if not data.get("ok"):
+                raise ValueError(f"Backend API returned ok=false: {data}")
+
+            return data.get("data", {})
 
 
 # 싱글톤 인스턴스

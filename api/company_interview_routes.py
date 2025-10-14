@@ -597,13 +597,13 @@ async def get_company_situational_analysis(session_id: str):
 
 # ==================== Job Posting Card API ====================
 
-@company_interview_router.get("/job-posting/{session_id}", response_model=JobPostingCard)
-async def get_job_posting_card(
+@company_interview_router.get("/card-generate/{session_id}", response_model=JobPostingCard)
+async def generate_job_posting_card_view(
     session_id: str,
     deadline: Optional[str] = None
 ):
     """
-    최종 채용 공고 카드 생성
+    최종 채용 공고 카드 생성 (표시용)
 
     모든 면접(General + Technical + Situational) 완료 후 호출
 
@@ -612,7 +612,7 @@ async def get_job_posting_card(
         deadline: 마감일 (선택, 예: "2024-12-31")
 
     Returns:
-        JobPostingCard (최종 채용 공고)
+        JobPostingCard (최종 채용 공고 카드)
     """
     # 세션 확인
     if session_id not in company_sessions:
@@ -670,6 +670,93 @@ async def get_job_posting_card(
     )
 
     return job_posting
+
+
+@company_interview_router.post("/job-posting")
+async def create_job_posting_from_interview(
+    session_id: str,
+    access_token: str
+):
+    """
+    면접 결과를 백엔드에 채용공고로 저장
+
+    모든 면접(General + Technical + Situational) 완료 후 호출
+
+    Args:
+        session_id: 세션 ID
+        access_token: JWT 액세스 토큰
+
+    Returns:
+        생성된 채용공고 정보
+    """
+    # 세션 확인
+    if session_id not in company_sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = company_sessions[session_id]
+
+    # 모든 면접 완료 확인
+    if not session.general_interview.is_finished():
+        raise HTTPException(
+            status_code=400,
+            detail="General interview not completed"
+        )
+
+    if not session.technical_interview or not session.technical_interview.is_finished():
+        raise HTTPException(
+            status_code=400,
+            detail="Technical interview not completed"
+        )
+
+    if not session.situational_interview or not session.situational_interview.is_finished():
+        raise HTTPException(
+            status_code=400,
+            detail="Situational interview not completed"
+        )
+
+    # 각 단계 분석 수행 (캐시 확인)
+    if not session.general_analysis:
+        answers = session.general_interview.get_answers()
+        session.general_analysis = analyze_company_general_interview(answers)
+
+    if not session.technical_requirements:
+        answers = session.technical_interview.get_answers()
+        session.technical_requirements = analyze_company_technical_interview(
+            answers=answers,
+            general_analysis=session.general_analysis
+        )
+
+    if not session.situational_profile:
+        answers = session.situational_interview.get_answers()
+        session.situational_profile = analyze_company_situational_interview(
+            answers=answers,
+            general_analysis=session.general_analysis,
+            technical_requirements=session.technical_requirements
+        )
+
+    # 면접 결과를 JD 데이터로 변환
+    from ai.interview.company_jd_generator import create_job_posting_from_interview
+
+    job_posting_data = create_job_posting_from_interview(
+        general_analysis=session.general_analysis,
+        technical_requirements=session.technical_requirements,
+        team_fit_analysis=session.situational_profile
+    )
+
+    # 백엔드에 POST
+    from ai.interview.client import get_backend_client
+
+    backend_client = get_backend_client()
+    created_job_posting = await backend_client.create_job_posting(
+        access_token=access_token,
+        job_posting_data=job_posting_data
+    )
+
+    return {
+        "success": True,
+        "job_posting_id": created_job_posting.get("id"),
+        "data": created_job_posting
+    }
 
 
 # ==================== Session Management APIs ====================

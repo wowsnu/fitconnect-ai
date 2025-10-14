@@ -743,7 +743,7 @@ async def create_job_posting_from_interview(
         team_fit_analysis=session.situational_profile
     )
 
-    # 백엔드에 POST
+    # 백엔드에 JD POST
     from ai.interview.client import get_backend_client
 
     backend_client = get_backend_client()
@@ -752,10 +752,31 @@ async def create_job_posting_from_interview(
         job_posting_data=job_posting_data
     )
 
+    job_posting_id = created_job_posting.get("id")
+
+    # 카드 데이터 생성 및 POST
+    from ai.interview.company_jd_generator import create_job_posting_card_from_interview
+
+    card_data = create_job_posting_card_from_interview(
+        general_analysis=session.general_analysis,
+        technical_requirements=session.technical_requirements,
+        team_fit_analysis=session.situational_profile,
+        job_posting_id=job_posting_id,
+        company_name=session.company_name,
+        job_posting_data=job_posting_data
+    )
+
+    created_card = await backend_client.create_job_posting_card(
+        access_token=access_token,
+        card_data=card_data
+    )
+
     return {
         "success": True,
-        "job_posting_id": created_job_posting.get("id"),
-        "data": created_job_posting
+        "job_posting_id": job_posting_id,
+        "card_id": created_card.get("id"),
+        "job_posting": created_job_posting,
+        "card": created_card
     }
 
 

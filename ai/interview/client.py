@@ -260,6 +260,42 @@ class BackendAPIClient:
 
             return data.get("data", {})
 
+    async def create_job_posting_card(self, access_token: str, card_data: dict) -> dict:
+        """
+        채용공고 카드 생성 (POST /api/job_posting_cards/)
+
+        Args:
+            access_token: JWT 액세스 토큰
+            card_data: 카드 데이터 (header_title, responsibilities, etc.)
+
+        Returns:
+            생성된 카드 정보 dict
+
+        Raises:
+            httpx.HTTPStatusError: API 호출 실패
+            ValueError: API 응답 오류
+        """
+        url = f"{self.backend_url}/api/job_posting_cards"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+
+        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
+            response = await client.post(url, headers=headers, json=card_data)
+
+            # 201 Created도 성공으로 처리
+            if response.status_code not in [200, 201]:
+                error_detail = response.text
+                raise ValueError(f"Backend API error {response.status_code}: {error_detail}")
+
+            data = response.json()
+
+            if not data.get("ok"):
+                raise ValueError(f"Backend API returned ok=false: {data}")
+
+            return data.get("data", {})
+
 
 # 싱글톤 인스턴스
 _client_instance = None

@@ -37,16 +37,19 @@ class CompanySituationalInterview:
         self,
         general_analysis: CompanyGeneralAnalysis,
         technical_requirements: TechnicalRequirements,
+        company_info: Optional[dict] = None,
         questions: Optional[List[str]] = None
     ):
         """
         Args:
             general_analysis: General 면접 분석 결과
             technical_requirements: Technical 면접 분석 결과
+            company_info: 기업 기본 정보 (선택) - culture, vision_mission 등
             questions: 커스텀 질문 리스트 (없으면 기본 질문 사용)
         """
         self.general_analysis = general_analysis
         self.technical_requirements = technical_requirements
+        self.company_info = company_info or {}
         self.fixed_questions = questions or COMPANY_SITUATIONAL_QUESTIONS
         self.current_index = 0
         self.answers = []
@@ -139,6 +142,18 @@ class CompanySituationalInterview:
 - 예상 도전: {self.technical_requirements.expected_challenges}
 """
 
+        # 기업 정보 추가
+        company_context = ""
+        if self.company_info:
+            company_parts = []
+            if self.company_info.get("culture"):
+                company_parts.append(f"- 조직 문화: {self.company_info['culture']}")
+            if self.company_info.get("vision_mission"):
+                company_parts.append(f"- 비전/미션: {self.company_info['vision_mission']}")
+
+            if company_parts:
+                company_context = "\n[기업 정보]\n" + "\n".join(company_parts) + "\n"
+
         prompt = ChatPromptTemplate.from_messages([
             ("system", """당신은 HR 채용 전문가입니다.
 
@@ -159,7 +174,7 @@ Situational 면접의 고정 질문 답변을 분석하여, 팀 핏을 더 구�
 - 팀 문화와 직무 특성을 연결하여 질문
 - 2-3개의 질문만 생성
 """),
-            ("user", f"{context}\n\n[Situational 고정 질문 답변]\n{all_qa}")
+            ("user", f"{context}{company_context}\n[Situational 고정 질문 답변]\n{all_qa}")
         ])
 
         settings = get_settings()

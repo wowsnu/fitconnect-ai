@@ -155,6 +155,75 @@ class BackendAPIClient:
 
             return data.get("data", {})
 
+    async def get_company_profile(self, access_token: str) -> dict:
+        """
+        기업 프로필 가져오기 (GET /api/me/company/)
+
+        Args:
+            access_token: JWT 액세스 토큰
+
+        Returns:
+            기업 프로필 정보 dict
+
+        Raises:
+            httpx.HTTPStatusError: API 호출 실패
+        """
+        url = f"{self.backend_url}/api/me/company/"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+
+            data = response.json()
+
+            if not data.get("ok"):
+                raise ValueError(f"Backend API returned ok=false: {data}")
+
+            return data.get("data", {})
+
+    async def get_job_posting(self, job_posting_id: int, access_token: str) -> dict:
+        """
+        특정 채용공고 가져오기 (GET /api/me/company/job-postings)
+
+        Args:
+            job_posting_id: 채용공고 ID
+            access_token: JWT 액세스 토큰
+
+        Returns:
+            채용공고 정보 dict
+
+        Raises:
+            httpx.HTTPStatusError: API 호출 실패
+            ValueError: 채용공고를 찾을 수 없음
+        """
+        url = f"{self.backend_url}/api/me/company/job-postings"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+
+            data = response.json()
+
+            if not data.get("ok"):
+                raise ValueError(f"Backend API returned ok=false: {data}")
+
+            postings = data.get("data", [])
+
+            # job_posting_id로 필터링
+            for posting in postings:
+                if posting.get("id") == job_posting_id:
+                    return posting
+
+            raise ValueError(f"Job posting with id {job_posting_id} not found")
+
 
 # 싱글톤 인스턴스
 _client_instance = None

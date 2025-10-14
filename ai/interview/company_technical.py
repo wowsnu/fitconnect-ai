@@ -19,6 +19,53 @@ from ai.interview.company_models import (
 from config.settings import get_settings
 
 
+def format_job_posting_to_jd(job_posting: dict) -> str:
+    """
+    채용공고 데이터를 JD 텍스트로 변환
+
+    Args:
+        job_posting: 백엔드에서 가져온 채용공고 dict
+
+    Returns:
+        포맷팅된 JD 텍스트
+    """
+    sections = []
+
+    # 기본 정보
+    sections.append(f"# {job_posting.get('title', '채용 포지션')}")
+
+    if job_posting.get('position'):
+        sections.append(f"**포지션**: {job_posting['position']}")
+
+    if job_posting.get('department'):
+        sections.append(f"**부서**: {job_posting['department']}")
+
+    if job_posting.get('employment_type'):
+        sections.append(f"**고용 형태**: {job_posting['employment_type']}")
+
+    if job_posting.get('location_city'):
+        sections.append(f"**근무지**: {job_posting['location_city']}")
+
+    # 주요 업무
+    if job_posting.get('responsibilities'):
+        sections.append(f"\n## 주요 업무\n{job_posting['responsibilities']}")
+
+    # 필수 요건
+    if job_posting.get('requirements_must'):
+        sections.append(f"\n## 필수 요건\n{job_posting['requirements_must']}")
+
+    # 우대 요건
+    if job_posting.get('requirements_nice'):
+        sections.append(f"\n## 우대 요건\n{job_posting['requirements_nice']}")
+
+    # 역량
+    if job_posting.get('competencies'):
+        competencies_str = ", ".join(job_posting['competencies'])
+        sections.append(f"\n## 필요 역량\n{competencies_str}")
+
+    return "\n\n".join(sections)
+
+
 # Technical 고정 질문 (5개)
 COMPANY_TECHNICAL_QUESTIONS = [
     "이 포지션에서 수행할 주요 업무는 무엇인가요?",
@@ -36,16 +83,19 @@ class CompanyTechnicalInterview:
         self,
         general_analysis: CompanyGeneralAnalysis,
         existing_jd: Optional[str] = None,
+        company_info: Optional[dict] = None,
         questions: Optional[List[str]] = None
     ):
         """
         Args:
             general_analysis: General 면접 분석 결과
             existing_jd: 기존 Job Description (선택)
+            company_info: 기업 기본 정보 (선택) - culture, vision_mission 등
             questions: 커스텀 질문 리스트 (없으면 기본 질문 사용)
         """
         self.general_analysis = general_analysis
         self.existing_jd = existing_jd
+        self.company_info = company_info or {}
         self.fixed_questions = questions or COMPANY_TECHNICAL_QUESTIONS
         self.current_index = 0
         self.answers = []
@@ -134,6 +184,20 @@ class CompanyTechnicalInterview:
 - 업무 방식: {self.general_analysis.work_style}
 """
 
+        # 기업 정보 추가
+        company_context = ""
+        if self.company_info:
+            company_parts = []
+            if self.company_info.get("culture"):
+                company_parts.append(f"- 조직 문화: {self.company_info['culture']}")
+            if self.company_info.get("vision_mission"):
+                company_parts.append(f"- 비전/미션: {self.company_info['vision_mission']}")
+            if self.company_info.get("business_domains"):
+                company_parts.append(f"- 사업 영역: {self.company_info['business_domains']}")
+
+            if company_parts:
+                company_context = "\n[기업 정보]\n" + "\n".join(company_parts) + "\n"
+
         # 기존 JD가 있으면 추가
         jd_context = ""
         if self.existing_jd:
@@ -160,7 +224,7 @@ Technical 면접의 고정 질문 답변을 분석하여, 더 구체적으로 �
 - 추측하지 말고, 명확히 할 필요가 있는 부분만 질문
 - 2-3개의 질문만 생성 (너무 많으면 부담)
 """),
-            ("user", f"{general_summary}\n{jd_context}\n[Technical 고정 질문 답변]\n{all_qa}")
+            ("user", f"{general_summary}\n{company_context}{jd_context}\n[Technical 고정 질문 답변]\n{all_qa}")
         ])
 
         settings = get_settings()

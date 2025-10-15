@@ -5,7 +5,7 @@ Backend API Client for Interview System
 
 import httpx
 from typing import Optional
-from ai.interview.models import CandidateProfile
+from ai.interview.talent.models import CandidateProfile
 from config.settings import get_settings
 
 
@@ -146,6 +146,12 @@ class BackendAPIClient:
 
         async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
             response = await client.post(url, headers=headers, json=payload)
+
+            # 409 Conflict: 이미 존재하는 경우 기존 벡터 유지
+            if response.status_code == 409:
+                print(f"[INFO] Matching vector already exists, using existing one")
+                return {"id": "existing", "status": "conflict", "message": "Using existing matching vector"}
+
             response.raise_for_status()
 
             data = response.json()

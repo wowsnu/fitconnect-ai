@@ -37,6 +37,11 @@ class CompanyGeneralAnalysis(BaseModel):
         description="채용 이유/목적"
     )
 
+    hiring_reason_reasoning: str = Field(
+        description="채용 이유 심층 분석",
+        default=""
+    )
+
 
 # ==================== Technical Interview ====================
 
@@ -72,6 +77,11 @@ class TechnicalRequirements(BaseModel):
         description="예상되는 어려움/도전 과제"
     )
 
+    expected_challenges_reasoning: str = Field(
+        description="예상 도전 과제 심층 분석",
+        default=""
+    )
+
 
 # ==================== Situational Interview ====================
 
@@ -82,20 +92,45 @@ class TeamCultureProfile(BaseModel):
         description="팀 현황 (성장기, 안정기 등)"
     )
 
+    team_situation_reasoning: str = Field(
+        description="팀 현황 심층 분석",
+        default=""
+    )
+
     collaboration_style: str = Field(
         description="선호하는 협업 스타일"
+    )
+
+    collaboration_style_reasoning: str = Field(
+        description="협업 스타일 심층 분석",
+        default=""
     )
 
     conflict_resolution: str = Field(
         description="갈등 해결 방식"
     )
 
+    conflict_resolution_reasoning: str = Field(
+        description="갈등 해결 심층 분석",
+        default=""
+    )
+
     work_environment: str = Field(
         description="업무 환경 특성 (변화 vs 안정)"
     )
 
+    work_environment_reasoning: str = Field(
+        description="업무 환경 심층 분석",
+        default=""
+    )
+
     preferred_work_style: str = Field(
         description="선호하는 업무 스타일 (독립 vs 협업)"
+    )
+
+    preferred_work_style_reasoning: str = Field(
+        description="선호 업무 스타일 심층 분석",
+        default=""
     )
 
 

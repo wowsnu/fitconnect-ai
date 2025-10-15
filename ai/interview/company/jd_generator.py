@@ -8,7 +8,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
-from ai.interview.company_models import (
+from ai.interview.company.models import (
     CompanyGeneralAnalysis,
     TechnicalRequirements,
     TeamCultureProfile
@@ -23,7 +23,7 @@ class JobPostingData(BaseModel):
     responsibilities: List[str] = Field(description="주요 업무 (정확히 4개)", min_length=4, max_length=4)
     requirements_must: List[str] = Field(description="필수 요건 (정확히 4개)", min_length=4, max_length=4)
     requirements_nice: List[str] = Field(description="우대 요건 (정확히 4개)", min_length=4, max_length=4)
-    competencies: List[str] = Field(description="필요 역량 리스트 (정확히 4개)", min_length=4, max_length=4)
+    competencies: List[str] = Field(description="요구 역량 (정확히 4개)", min_length=4, max_length=4)
 
 
 def create_job_posting_from_interview(
@@ -76,22 +76,18 @@ def create_job_posting_from_interview(
 1. **title**: 직무명 (Technical 분석의 job_title 사용)
 
 2. **responsibilities**: 주요 업무
-   - Technical 분석 결과에서 **정확히 4개** 추출
    - 리스트 형태로 반환
    - 구체적이고 명확하게 작성
    - 예: ["RESTful API 설계 및 개발", "데이터베이스 최적화 및 관리", ...]
 
 3. **requirements_must**: 필수 요건
-   - Technical 분석의 필수 역량에서 **정확히 4개**
    - 리스트 형태로 반환
    - 예: ["Python 5년 이상 경험", "FastAPI 프레임워크 실무 경험", ...]
 
-4. **requirements_nice**: 우대 요건
-   - Technical 분석의 우대 역량에서 **정확히 4개**
+4. **requirements_nice**: 우대 사항
    - 리스트 형태로 반환
 
-5. **competencies**: 필요 역량
-   - 필수 역량에서 **정확히 4개**를 리스트로
+5. **competencies**: 요구 역량
    - 예: ["Python", "FastAPI", "PostgreSQL", "AWS"]
 
 **중요:**
@@ -136,9 +132,9 @@ class JobPostingCardData(BaseModel):
     header_title: str = Field(description="카드 헤더 제목 (직무명)")
     badge_role: str = Field(description="역할 뱃지 (예: Backend, Frontend)")
     headline: str = Field(description="한 줄 요약 (매력적인 헤드라인)")
-    responsibilities: List[str] = Field(description="주요 업무 4개", min_length=4, max_length=4)
-    requirements: List[str] = Field(description="필수 요건 4개", min_length=4, max_length=4)
-    required_competencies: List[str] = Field(description="필수 역량 4개", min_length=4, max_length=4)
+    responsibilities: List[str] = Field(description="주요 역할/업무 4개", min_length=4, max_length=4)
+    requirements: List[str] = Field(description="자격 요건 4개", min_length=4, max_length=4)
+    required_competencies: List[str] = Field(description="요구 역량 4개", min_length=4, max_length=4)
     company_info: str = Field(description="기업 정보 (팀 문화 + 업무 방식, 2-3문장)")
     talent_persona: str = Field(description="이상적인 인재상 (2-3문장)")
     challenge_task: str = Field(description="도전 과제 (긍정적으로 재구성, 2-3문장)")
@@ -174,9 +170,9 @@ def create_job_posting_card_from_interview(
 {job_posting_data.get('responsibilities', '')}
 - 필수 요건:
 {job_posting_data.get('requirements_must', '')}
-- 우대 요건:
+- 우대 사항:
 {job_posting_data.get('requirements_nice', '')}
-- 필요 역량: {', '.join(job_posting_data.get('competencies', []))}
+- 요구 역량: {', '.join(job_posting_data.get('competencies', []))}
 """
 
     # 컨텍스트 구성
@@ -223,21 +219,18 @@ def create_job_posting_card_from_interview(
    - 채용 이유와 직무를 결합하여 임팩트 있게
    - 예: "혁신적인 기술로 금융의 미래를 만들어갈 시니어 백엔드 개발자를 찾습니다"
 
-4. **responsibilities**: 주요 업무 **정확히 4개**
-   - Technical 분석 결과에서 추출
+4. **responsibilities**: 주요 역할/업무 **정확히 4개**
    - 구체적이고 명확하게
 
-5. **requirements**: 필수 요건 **정확히 4개**
-   - Technical 분석의 필수 역량에서 추출
+5. **requirements**: 자격 요건 **정확히 4개**
 
-6. **required_competencies**: 필수 역량 **정확히 4개**
-   - Technical 분석의 필수 역량에서 추출
+6. **required_competencies**: 요구 역량 **정확히 4개**
 
 7. **company_info**: 기업 정보 (2-3문장)
    - General 분석의 team_culture + work_style 통합
    - 매력적으로 재구성
 
-8. **talent_persona**: 이상적인 인재상 (2-3문장)
+8. **talent_persona**: 인재상 (2-3문장)
    - General의 ideal_candidate_traits + Situational 분석 통합
    - 구체적인 특징으로 정리
 

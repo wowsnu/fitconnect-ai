@@ -10,7 +10,7 @@ from typing import List, Optional
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 
-from ai.interview.company_models import CompanyGeneralAnalysis
+from ai.interview.company.models import CompanyGeneralAnalysis
 from config.settings import get_settings
 
 

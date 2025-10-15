@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 
-from ai.interview.models import (
+from ai.interview.talent.models import (
     CandidateProfile,
     GeneralInterviewAnalysis,
     FinalPersonaReport

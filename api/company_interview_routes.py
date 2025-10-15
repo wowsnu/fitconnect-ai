@@ -18,20 +18,19 @@ from typing import Optional, Dict
 import uuid
 from datetime import datetime
 
-from ai.interview.company_general import (
+from ai.interview.company.general import (
     CompanyGeneralInterview,
     analyze_company_general_interview
 )
-from ai.interview.company_technical import (
+from ai.interview.company.technical import (
     CompanyTechnicalInterview,
     analyze_company_technical_interview
 )
-from ai.interview.company_situational import (
+from ai.interview.company.situational import (
     CompanySituationalInterview,
     analyze_company_situational_interview
 )
-from ai.interview.company_job_posting import generate_job_posting_card
-from ai.interview.company_models import (
+from ai.interview.company.models import (
     CompanyGeneralAnalysis,
     TechnicalRequirements,
     TeamCultureProfile,
@@ -328,7 +327,7 @@ async def start_company_technical_interview(request: StartTechnicalInterviewRequ
 
     # 기업 정보 및 JD 가져오기
     from ai.interview.client import get_backend_client
-    from ai.interview.company_technical import format_job_posting_to_jd
+    from ai.interview.company.technical import format_job_posting_to_jd
 
     backend_client = get_backend_client()
 
@@ -597,81 +596,6 @@ async def get_company_situational_analysis(session_id: str):
 
 # ==================== Job Posting Card API ====================
 
-@company_interview_router.get("/card-generate/{session_id}", response_model=JobPostingCard)
-async def generate_job_posting_card_view(
-    session_id: str,
-    deadline: Optional[str] = None
-):
-    """
-    최종 채용 공고 카드 생성 (표시용)
-
-    모든 면접(General + Technical + Situational) 완료 후 호출
-
-    Args:
-        session_id: 세션 ID
-        deadline: 마감일 (선택, 예: "2024-12-31")
-
-    Returns:
-        JobPostingCard (최종 채용 공고 카드)
-    """
-    # 세션 확인
-    if session_id not in company_sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    session = company_sessions[session_id]
-
-    # 모든 면접 완료 확인
-    if not session.general_interview.is_finished():
-        raise HTTPException(
-            status_code=400,
-            detail="General interview not completed"
-        )
-
-    if not session.technical_interview or not session.technical_interview.is_finished():
-        raise HTTPException(
-            status_code=400,
-            detail="Technical interview not completed"
-        )
-
-    if not session.situational_interview or not session.situational_interview.is_finished():
-        raise HTTPException(
-            status_code=400,
-            detail="Situational interview not completed"
-        )
-
-    # 각 단계 분석 수행 (캐시 확인)
-    if not session.general_analysis:
-        answers = session.general_interview.get_answers()
-        session.general_analysis = analyze_company_general_interview(answers)
-
-    if not session.technical_requirements:
-        answers = session.technical_interview.get_answers()
-        session.technical_requirements = analyze_company_technical_interview(
-            answers=answers,
-            general_analysis=session.general_analysis
-        )
-
-    if not session.situational_profile:
-        answers = session.situational_interview.get_answers()
-        session.situational_profile = analyze_company_situational_interview(
-            answers=answers,
-            general_analysis=session.general_analysis,
-            technical_requirements=session.technical_requirements
-        )
-
-    # Job Posting Card 생성
-    job_posting = generate_job_posting_card(
-        company_name=session.company_name,
-        general_analysis=session.general_analysis,
-        technical_requirements=session.technical_requirements,
-        situational_profile=session.situational_profile,
-        existing_jd=session.existing_jd,
-        deadline=deadline
-    )
-
-    return job_posting
-
-
 @company_interview_router.post("/job-posting")
 async def create_job_posting_from_interview(
     session_id: str,
@@ -735,7 +659,7 @@ async def create_job_posting_from_interview(
         )
 
     # 면접 결과를 JD 데이터로 변환
-    from ai.interview.company_jd_generator import create_job_posting_from_interview
+    from ai.interview.company.jd_generator import create_job_posting_from_interview
 
     job_posting_data = create_job_posting_from_interview(
         general_analysis=session.general_analysis,
@@ -755,7 +679,7 @@ async def create_job_posting_from_interview(
     job_posting_id = created_job_posting.get("id")
 
     # 카드 데이터 생성 및 POST
-    from ai.interview.company_jd_generator import create_job_posting_card_from_interview
+    from ai.interview.company.jd_generator import create_job_posting_card_from_interview
 
     card_data = create_job_posting_card_from_interview(
         general_analysis=session.general_analysis,
@@ -771,12 +695,32 @@ async def create_job_posting_from_interview(
         card_data=card_data
     )
 
+    # 매칭 벡터 생성 및 POST
+    from ai.matching.company_vector_generator import generate_company_matching_vectors
+
+    matching_result = generate_company_matching_vectors(
+        general_analysis=session.general_analysis,
+        technical_requirements=session.technical_requirements,
+        team_fit_analysis=session.situational_profile,
+        company_name=session.company_name,
+        job_posting_data=job_posting_data
+    )
+
+    # 백엔드에 매칭 벡터 POST
+    created_vectors = await backend_client.post_matching_vectors(
+        vectors_data=matching_result["vectors"],
+        access_token=access_token,
+        role="company"
+    )
+
     return {
         "success": True,
         "job_posting_id": job_posting_id,
         "card_id": created_card.get("id"),
+        "matching_vector_id": created_vectors.get("id"),
         "job_posting": created_job_posting,
-        "card": created_card
+        "card": created_card,
+        "matching_texts": matching_result["texts"]
     }
 
 

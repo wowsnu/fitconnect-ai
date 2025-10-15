@@ -11,7 +11,14 @@ from pydantic import BaseModel, Field
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 
-from ai.interview.models import PersonaScores, FinalPersonaReport
+from ai.interview.talent.models import (
+    CandidateProfile,
+    PersonaScores,
+    FinalPersonaReport,
+    GeneralInterviewCardPart,
+    TechnicalInterviewCardPart,
+    SituationalInterviewCardPart,
+)
 from config.settings import get_settings
 
 
@@ -145,6 +152,100 @@ def analyze_situational_answer(
         temperature=0.3,
         api_key=settings.OPENAI_API_KEY
     ).with_structured_output(AnswerAnalysis)
+
+    return (prompt | llm).invoke({})
+
+
+def analyze_situational_interview_for_card(
+    candidate_profile: CandidateProfile,
+    situational_report: FinalPersonaReport,
+    qa_history: list[dict],
+    general_part: GeneralInterviewCardPart,
+    technical_part: TechnicalInterviewCardPart
+) -> SituationalInterviewCardPart:
+    """
+    상황 면접 결과를 프로필 카드용 파트로 변환
+
+    Args:
+        candidate_profile: 지원자 기본 프로필
+        situational_report: 상황 면접 페르소나 리포트
+        qa_history: 상황 면접 원본 Q&A
+        general_part: 구조화 면접 카드 파트
+        technical_part: 직무 면접 카드 파트
+
+    Returns:
+        SituationalInterviewCardPart
+    """
+    qa_text = "\n\n".join([
+        f"질문: {qa['question']}\n답변: {qa['answer'][:150]}..."
+        for qa in qa_history
+    ])
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", """당신은 HR 전문가입니다.
+상황 면접 결과를 분석하여 **직무 적합성**, **협업 성향**, **성장 가능성**을 요약하세요.
+또한 이전 면접에서 부족한 부분이 있다면 보완하세요.
+
+**추출 목표:**
+
+1. **직무 적합성** (한 문장):
+   - 페르소나와 업무 스타일을 종합하여 직무 적합도 평가
+   - 예: "체계적이고 논리적인 문제 해결로 백엔드 개발에 적합"
+
+2. **협업 성향** (한 문장):
+   - 커뮤니케이션과 팀워크 스타일 요약
+   - 예: "적극적인 코드 리뷰와 지식 공유로 팀 성장에 기여"
+
+3. **성장 가능성** (한 문장):
+   - 학습 성향과 발전 가능성 평가
+   - 예: "빠른 학습 능력과 실험적 태도로 신기술 습득에 강점"
+
+4. **부족한 부분 보완** (Optional):
+   - 이전 면접에서 충분히 드러나지 않은 경험, 강점, 역량이 있다면 추가
+   - 상황 면접 답변에서 새로 발견된 내용 위주
+
+**주의:**
+- 각 항목은 한 문장으로 명확하게 작성
+- 페르소나 분석 결과와 일관성 유지
+- 보완 항목은 실제로 필요한 경우에만 추가
+"""),
+        ("user", f"""
+## 지원자 기본 정보
+- 이름: {candidate_profile.basic.name if candidate_profile.basic else "지원자"}
+- 직무: {candidate_profile.basic.tagline if candidate_profile.basic else "개발자"}
+
+## 상황 면접 페르소나 분석
+- 업무 스타일: {situational_report.work_style}
+- 문제 해결: {situational_report.problem_solving}
+- 학습 성향: {situational_report.learning}
+- 스트레스 대응: {situational_report.stress_response}
+- 커뮤니케이션: {situational_report.communication}
+- 종합 요약: {situational_report.summary}
+- 팀 적합도: {situational_report.team_fit}
+
+## 상황 면접 원본 답변
+{qa_text}
+
+## 이전 면접 결과 (부족한 부분 확인용)
+- 추출된 주요 경험: {len(general_part.key_experiences)}개
+- 추출된 일반 역량: {len(general_part.core_competencies)}개
+- 추출된 강점: {len(technical_part.strengths)}개
+- 추출된 직무 역량: {len(technical_part.technical_skills)}개
+
+위 정보를 바탕으로:
+1. **직무 적합성** 한 문장
+2. **협업 성향** 한 문장
+3. **성장 가능성** 한 문장
+4. 상황 면접 답변에서 이전 면접에서 다루지 못한 경험/강점/역량이 있다면 보완 (없으면 빈 리스트)
+""")
+    ])
+
+    settings = get_settings()
+    llm = ChatOpenAI(
+        model="gpt-4o",
+        temperature=0.3,
+        api_key=settings.OPENAI_API_KEY
+    ).with_structured_output(SituationalInterviewCardPart)
 
     return (prompt | llm).invoke({})
 

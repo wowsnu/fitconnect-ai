@@ -14,17 +14,24 @@ import uuid
 import json
 from datetime import datetime
 
-from ai.interview.general import GeneralInterview, analyze_general_interview
-from ai.interview.technical import TechnicalInterview
-from ai.interview.situational import SituationalInterview
-from ai.interview.profile_analysis import (
-    generate_candidate_profile_card,
-    analyze_general_interview as analyze_general_for_card,
-    analyze_technical_interview as analyze_technical_for_card,
-    analyze_situational_interview as analyze_situational_for_card,
-    convert_card_to_backend_format
+from ai.interview.talent.general import (
+    GeneralInterview,
+    analyze_general_interview,
+    analyze_general_interview_for_card,
 )
-from ai.interview.models import CandidateProfile, CandidateProfileCard
+from ai.interview.talent.technical import (
+    TechnicalInterview,
+    analyze_technical_interview_for_card,
+)
+from ai.interview.talent.situational import (
+    SituationalInterview,
+    analyze_situational_interview_for_card,
+)
+from ai.interview.talent.card_generator import (
+    generate_candidate_profile_card,
+    convert_card_to_backend_format,
+)
+from ai.interview.talent.models import CandidateProfile, CandidateProfileCard
 from ai.interview.client import get_backend_client
 from ai.stt.service import get_stt_service
 
@@ -796,7 +803,7 @@ async def generate_and_post_profile_card(request: GenerateAndPostCardRequest):
     general_qa = session.interview.get_answers()  # [{"question": ..., "answer": ...}, ...]
 
     # 2. General Interview 카드 파트 추출
-    general_part = analyze_general_for_card(
+    general_part = analyze_general_interview_for_card(
         candidate_profile=profile,
         general_analysis=session.general_analysis,
         answers=general_qa
@@ -804,7 +811,7 @@ async def generate_and_post_profile_card(request: GenerateAndPostCardRequest):
 
     # 3. Technical Interview 카드 파트 추출
     technical_results = session.technical_interview.get_results()
-    technical_part = analyze_technical_for_card(
+    technical_part = analyze_technical_interview_for_card(
         candidate_profile=profile,
         technical_results=technical_results
     )
@@ -813,7 +820,7 @@ async def generate_and_post_profile_card(request: GenerateAndPostCardRequest):
     situational_report = session.situational_interview.get_final_report()
     situational_qa = session.situational_interview.qa_history
 
-    situational_part = analyze_situational_for_card(
+    situational_part = analyze_situational_interview_for_card(
         candidate_profile=profile,
         situational_report=situational_report,
         qa_history=situational_qa,
@@ -926,12 +933,6 @@ async def generate_matching_vectors(request: GenerateMatchingVectorsRequest):
 
     # Profile Card 확인/생성
     # (이미 생성되어 있다면 재사용, 없으면 새로 생성)
-    from ai.interview.profile_analysis import (
-        analyze_general_interview as analyze_general_for_card,
-        analyze_technical_interview as analyze_technical_for_card,
-        analyze_situational_interview as analyze_situational_for_card,
-        generate_candidate_profile_card
-    )
 
     general_qa = session.interview.get_answers()
     technical_results = session.technical_interview.get_results()
@@ -939,18 +940,18 @@ async def generate_matching_vectors(request: GenerateMatchingVectorsRequest):
     situational_qa = session.situational_interview.qa_history
 
     # 카드 파트 추출
-    general_part = analyze_general_for_card(
+    general_part = analyze_general_interview_for_card(
         candidate_profile=profile,
         general_analysis=session.general_analysis,
         answers=general_qa
     )
 
-    technical_part = analyze_technical_for_card(
+    technical_part = analyze_technical_interview_for_card(
         candidate_profile=profile,
         technical_results=technical_results
     )
 
-    situational_part = analyze_situational_for_card(
+    situational_part = analyze_situational_interview_for_card(
         candidate_profile=profile,
         situational_report=situational_report,
         qa_history=situational_qa,

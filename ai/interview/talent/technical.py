@@ -12,11 +12,12 @@ from typing import List, Optional
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 
-from ai.interview.models import (
+from ai.interview.talent.models import (
     CandidateProfile,
     GeneralInterviewAnalysis,
     InterviewQuestion,
-    AnswerFeedback
+    AnswerFeedback,
+    TechnicalInterviewCardPart,
 )
 from config.settings import get_settings
 
@@ -205,6 +206,83 @@ def analyze_answer(
         temperature=0.3,
         api_key=settings.OPENAI_API_KEY
     ).with_structured_output(AnswerFeedback)
+
+    return (prompt | llm).invoke({})
+
+
+def analyze_technical_interview_for_card(
+    candidate_profile: CandidateProfile,
+    technical_results: dict
+) -> TechnicalInterviewCardPart:
+    """
+    직무 면접 결과를 프로필 카드용 파트로 변환
+
+    Args:
+        candidate_profile: 지원자 기본 프로필
+        technical_results: 직무 면접 결과
+
+    Returns:
+        TechnicalInterviewCardPart
+    """
+    skills_evaluated = technical_results.get("skills_evaluated", [])
+    results = technical_results.get("results", {})
+
+    qa_summary: list[str] = []
+    for skill, questions in results.items():
+        qa_summary.append(f"\n[{skill}]")
+        for q in questions:
+            qa_summary.append(f"Q: {q['question'][:100]}...")
+            qa_summary.append(f"A: {q['answer'][:150]}...")
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", """당신은 HR 전문가입니다.
+직무적합성 면접 결과를 분석하여 **강점**과 **핵심 직무 역량/기술**을 추출하세요.
+
+**추출 목표:**
+
+1. **강점 (4개)**:
+   - 업무 수행 시 돋보이는 강점
+   - 기술 면접에서 드러난 실력과 경험
+   - 예: "빠른 학습 능력과 기술 습득력", "체계적인 문제 해결 접근", "성능 최적화 전문성"
+
+2. **핵심 직무 역량/기술 (4개)**:
+   - Hard skills (기술 스택, 전문 지식 등)
+   - 각 역량의 수준: "높음", "보통", "낮음"
+   - 실제 사용 경험과 깊이 기반
+   - 예: {{"name": "Python/FastAPI", "level": "높음"}}, {{"name": "데이터베이스 최적화", "level": "보통"}}
+
+**레벨 판단 기준:**
+- **높음**: 깊이 있는 이해, 최적화/트러블슈팅 경험, 구체적 수치나 성과 제시
+- **보통**: 기본적 사용 경험, 간단한 구현 가능, 일부 경험 있음
+- **낮음**: 개념만 알거나 매우 제한적 경험
+
+**주의:**
+- 실제 면접 답변에 근거하여 작성
+- 답변의 깊이와 구체성으로 수준 판단
+- 추측하지 말고 드러난 내용만 추출
+"""),
+        ("user", f"""
+## 지원자 기본 정보
+- 이름: {candidate_profile.basic.name if candidate_profile.basic else "지원자"}
+- 직무: {candidate_profile.basic.tagline if candidate_profile.basic else "개발자"}
+- 기술 스택: {', '.join([exp.summary or '' for exp in candidate_profile.experiences if exp.summary])}
+
+## 직무적합성 면접 결과
+- 평가된 기술: {', '.join(skills_evaluated)}
+
+## 질문/답변 요약
+{chr(10).join(qa_summary)}
+
+위 정보를 바탕으로 **강점 4개**와 **핵심 직무 역량/기술 4개**를 추출하세요.
+""")
+    ])
+
+    settings = get_settings()
+    llm = ChatOpenAI(
+        model="gpt-4o",
+        temperature=0.3,
+        api_key=settings.OPENAI_API_KEY
+    ).with_structured_output(TechnicalInterviewCardPart)
 
     return (prompt | llm).invoke({})
 

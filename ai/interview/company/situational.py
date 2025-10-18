@@ -107,16 +107,24 @@ class CompanySituationalInterview:
 
         # 고정 질문 모두 완료 시 실시간 질문 생성
         if self.current_index == len(self.fixed_questions):
+            print(f"[INFO] Situational fixed questions completed ({len(self.fixed_questions)}). Generating dynamic questions...")
             self._generate_dynamic_questions()
+            print(f"[INFO] Situational generated {len(self.dynamic_questions)} dynamic questions")
 
         # 다음 질문 가져오기
         next_q = self.get_next_question()
 
+        total_q = len(self.fixed_questions) + len(self.dynamic_questions)
+        # is_finished는 next_q가 None인지로 판단 (더 정확함)
+        is_done = next_q is None
+        print(f"[DEBUG] Situational - current_index: {self.current_index}, total_questions: {total_q}, is_finished: {is_done}, next_question: {next_q is not None}")
+
         return {
             "submitted": True,
             "question_number": self.current_index,
-            "total_questions": len(self.fixed_questions) + len(self.dynamic_questions),
-            "next_question": next_q
+            "total_questions": total_q,
+            "next_question": next_q,
+            "is_finished": is_done  # is_finished 추가
         }
 
     def _generate_dynamic_questions(self):

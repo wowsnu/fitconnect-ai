@@ -9,7 +9,7 @@ Interview API Routes
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 import uuid
 import json
 from datetime import datetime
@@ -38,6 +38,64 @@ from ai.stt.service import get_stt_service
 
 # 라우터 생성
 interview_router = APIRouter(prefix="/interview", tags=["Interview"])
+
+
+# ==================== Utility Functions ====================
+
+async def process_audio_file(audio: UploadFile) -> str:
+    """
+    음성 파일을 STT로 변환하는 공통 함수
+
+    Args:
+        audio: 업로드된 음성 파일
+
+    Returns:
+        변환된 텍스트
+
+    Raises:
+        HTTPException: STT 처리 실패 시
+    """
+    import tempfile
+    import os
+
+    # 음성 파일 임시 저장
+    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio.filename)[1]) as tmp_file:
+        content = await audio.read()
+        tmp_file.write(content)
+        tmp_path = tmp_file.name
+
+    try:
+        # STT 처리
+        stt_service = get_stt_service()
+        answer_text = stt_service.transcribe(tmp_path)
+        return answer_text
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"STT 처리 실패: {str(e)}"
+        )
+    finally:
+        # 임시 파일 삭제
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+def get_session(session_id: str) -> "InterviewSession":
+    """
+    세션 조회 및 검증
+
+    Args:
+        session_id: 세션 ID
+
+    Returns:
+        InterviewSession
+
+    Raises:
+        HTTPException: 세션이 없을 경우
+    """
+    if session_id not in interview_sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return interview_sessions[session_id]
 
 
 # ==================== 세션 관리 (In-Memory) ====================
@@ -85,11 +143,11 @@ class AnswerResponse(BaseModel):
 class AnalysisResponse(BaseModel):
     """최종 분석 결과"""
     session_id: str
-    key_themes: list[str]
-    interests: list[str]
-    work_style_hints: list[str]
-    emphasized_experiences: list[str]
-    technical_keywords: list[str]
+    key_themes: List[str]
+    interests: List[str]
+    work_style_hints: List[str]
+    emphasized_experiences: List[str]
+    technical_keywords: List[str]
 
 
 # ==================== API Endpoints ====================
@@ -135,10 +193,7 @@ async def submit_text_answer(request: AnswerRequest):
         - is_finished: 모든 질문 완료 여부
     """
     # 세션 확인
-    if request.session_id not in interview_sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    session = interview_sessions[request.session_id]
+    session = get_session(request.session_id)
     session.updated_at = datetime.now()
 
     # 답변 제출
@@ -170,41 +225,22 @@ async def submit_audio_answer(
         - is_finished: 완료 여부
     """
     # 세션 확인
-    if session_id not in interview_sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    session = interview_sessions[session_id]
+    session = get_session(session_id)
     session.updated_at = datetime.now()
 
-    # 음성 파일 저장 (임시)
-    import tempfile
-    import os
+    # STT 처리
+    answer_text = await process_audio_file(audio)
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio.filename)[1]) as tmp_file:
-        content = await audio.read()
-        tmp_file.write(content)
-        tmp_path = tmp_file.name
+    # 답변 제출
+    result = session.interview.submit_answer(answer_text)
 
-    try:
-        # STT 처리
-        stt_service = get_stt_service()
-        answer_text = stt_service.transcribe(tmp_path)
-
-        # 답변 제출
-        result = session.interview.submit_answer(answer_text)
-
-        return AnswerResponse(
-            success=True,
-            question_number=result["question_number"],
-            total_questions=result["total_questions"],
-            next_question=result["next_question"],
-            is_finished=session.interview.is_finished()
-        )
-
-    finally:
-        # 임시 파일 삭제
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+    return AnswerResponse(
+        success=True,
+        question_number=result["question_number"],
+        total_questions=result["total_questions"],
+        next_question=result["next_question"],
+        is_finished=session.interview.is_finished()
+    )
 
 
 @interview_router.get("/general/analysis/{session_id}", response_model=AnalysisResponse)
@@ -219,10 +255,7 @@ async def get_analysis(session_id: str):
         분석 결과 (key_themes, interests, technical_keywords 등)
     """
     # 세션 확인
-    if session_id not in interview_sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    session = interview_sessions[session_id]
+    session = get_session(session_id)
 
     # 완료 확인
     if not session.interview.is_finished():
@@ -256,10 +289,7 @@ async def get_session_info(session_id: str):
     Returns:
         세션 상태, 진행도 등
     """
-    if session_id not in interview_sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    session = interview_sessions[session_id]
+    session = get_session(session_id)
 
     return {
         "session_id": session_id,
@@ -280,9 +310,7 @@ async def delete_session(session_id: str):
     Args:
         session_id: 세션 ID
     """
-    if session_id not in interview_sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-
+    get_session(session_id)  # 존재 여부 확인
     del interview_sessions[session_id]
 
     return {"message": "Session deleted successfully"}
@@ -303,7 +331,7 @@ class TechnicalQuestionResponse(BaseModel):
     question: str
     why: str
     progress: str
-    selected_skills: Optional[list[str]] = None  # 선정된 기술 리스트 (start시에만 포함)
+    selected_skills: Optional[List[str]] = None  # 선정된 기술 리스트 (start시에만 포함)
 
 
 class TechnicalAnswerRequest(BaseModel):
@@ -332,10 +360,7 @@ async def start_technical_interview(request: StartTechnicalRequest):
         첫 질문
     """
     # 세션 확인
-    if request.session_id not in interview_sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    session = interview_sessions[request.session_id]
+    session = get_session(request.session_id)
 
     # 구조화 면접 완료 확인
     if not session.interview.is_finished():
@@ -352,9 +377,15 @@ async def start_technical_interview(request: StartTechnicalRequest):
     # 백엔드 API에서 프로필 가져오기
     backend_client = get_backend_client()
     try:
-        # TODO: user_id는 세션에서 가져오거나 JWT에서 파싱
-        user_id = 1  # 임시값
-        profile = await backend_client.get_talent_profile(user_id, request.access_token)
+        profile = await backend_client.get_talent_profile(request.access_token)
+
+        # 프로필에서 user_id 추출 (검증 및 로깅용)
+        if not profile.basic or not profile.basic.user_id:
+            raise ValueError("User ID not found in profile")
+
+        user_id = profile.basic.user_id
+        print(f"[INFO] Starting technical interview for user_id={user_id}, session={request.session_id}")
+
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -389,10 +420,7 @@ async def submit_technical_answer(request: TechnicalAnswerRequest):
         평가 결과 + 다음 질문
     """
     # 세션 확인
-    if request.session_id not in interview_sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    session = interview_sessions[request.session_id]
+    session = get_session(request.session_id)
 
     # Technical Interview 확인
     if not session.technical_interview:
@@ -430,10 +458,7 @@ async def submit_technical_answer_audio(
         평가 결과 + 다음 질문
     """
     # 세션 확인
-    if session_id not in interview_sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    session = interview_sessions[session_id]
+    session = get_session(session_id)
 
     # Technical Interview 확인
     if not session.technical_interview:
@@ -442,36 +467,20 @@ async def submit_technical_answer_audio(
             detail="Technical interview not started"
         )
 
-    # 음성 파일 저장 (임시)
-    import tempfile
-    import os
+    # STT 처리
+    answer_text = await process_audio_file(audio)
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio.filename)[1]) as tmp_file:
-        content = await audio.read()
-        tmp_file.write(content)
-        tmp_path = tmp_file.name
+    # 답변 제출
+    result = session.technical_interview.submit_answer(answer_text)
 
-    try:
-        # STT 처리
-        stt_service = get_stt_service()
-        answer_text = stt_service.transcribe(tmp_path)
+    next_q = result["next_question"]
+    next_question_response = TechnicalQuestionResponse(**next_q) if next_q else None
 
-        # 답변 제출
-        result = session.technical_interview.submit_answer(answer_text)
-
-        next_q = result["next_question"]
-        next_question_response = TechnicalQuestionResponse(**next_q) if next_q else None
-
-        return TechnicalAnswerResponse(
-            feedback=result["feedback"],
-            next_question=next_question_response,
-            is_finished=session.technical_interview.is_finished()
-        )
-
-    finally:
-        # 임시 파일 삭제
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+    return TechnicalAnswerResponse(
+        feedback=result["feedback"],
+        next_question=next_question_response,
+        is_finished=session.technical_interview.is_finished()
+    )
 
 
 @interview_router.get("/technical/results/{session_id}")
@@ -486,10 +495,7 @@ async def get_technical_results(session_id: str):
         평가 결과 (기술별 점수, 평균 등)
     """
     # 세션 확인
-    if session_id not in interview_sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    session = interview_sessions[session_id]
+    session = get_session(session_id)
 
     # Technical Interview 확인
     if not session.technical_interview:
@@ -593,10 +599,7 @@ async def submit_situational_answer(request: SituationalAnswerRequest):
         분석 결과 + 다음 질문
     """
     # 세션 확인
-    if request.session_id not in interview_sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    session = interview_sessions[request.session_id]
+    session = get_session(request.session_id)
 
     # Situational Interview 확인
     if not session.situational_interview:
@@ -634,10 +637,7 @@ async def submit_situational_answer_audio(
         분석 결과 + 다음 질문
     """
     # 세션 확인
-    if session_id not in interview_sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    session = interview_sessions[session_id]
+    session = get_session(session_id)
 
     # Situational Interview 확인
     if not session.situational_interview:
@@ -646,36 +646,20 @@ async def submit_situational_answer_audio(
             detail="Situational interview not started"
         )
 
-    # 음성 파일 저장 (임시)
-    import tempfile
-    import os
+    # STT 처리
+    answer_text = await process_audio_file(audio)
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio.filename)[1]) as tmp_file:
-        content = await audio.read()
-        tmp_file.write(content)
-        tmp_path = tmp_file.name
+    # 답변 제출
+    result = session.situational_interview.submit_answer(answer_text)
 
-    try:
-        # STT 처리
-        stt_service = get_stt_service()
-        answer_text = stt_service.transcribe(tmp_path)
+    next_q = result["next_question"]
+    next_question_response = SituationalQuestionResponse(**next_q) if next_q else None
 
-        # 답변 제출
-        result = session.situational_interview.submit_answer(answer_text)
-
-        next_q = result["next_question"]
-        next_question_response = SituationalQuestionResponse(**next_q) if next_q else None
-
-        return SituationalAnswerResponse(
-            analysis=result["analysis"],
-            next_question=next_question_response,
-            is_finished=session.situational_interview.is_finished()
-        )
-
-    finally:
-        # 임시 파일 삭제
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+    return SituationalAnswerResponse(
+        analysis=result["analysis"],
+        next_question=next_question_response,
+        is_finished=session.situational_interview.is_finished()
+    )
 
 
 @interview_router.get("/situational/report/{session_id}", response_model=PersonaReportResponse)
@@ -690,10 +674,7 @@ async def get_persona_report(session_id: str):
         최종 페르소나 분석 결과
     """
     # 세션 확인
-    if session_id not in interview_sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    session = interview_sessions[session_id]
+    session = get_session(session_id)
 
     # Situational Interview 확인
     if not session.situational_interview:
@@ -767,10 +748,7 @@ async def generate_and_post_profile_card(request: GenerateAndPostCardRequest):
         생성된 카드 + 백엔드 응답
     """
     # 세션 확인
-    if request.session_id not in interview_sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    session = interview_sessions[request.session_id]
+    session = get_session(request.session_id)
 
     # 모든 면접 완료 확인
     if not session.interview.is_finished():
@@ -899,10 +877,7 @@ async def generate_matching_vectors(request: GenerateMatchingVectorsRequest):
     from ai.matching.vector_generator import generate_talent_matching_vectors
 
     # 세션 확인
-    if request.session_id not in interview_sessions:
-        raise HTTPException(status_code=404, detail="Session not found")
-
-    session = interview_sessions[request.session_id]
+    session = get_session(request.session_id)
 
     # 모든 면접 완료 확인
     if not session.interview.is_finished():

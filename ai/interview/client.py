@@ -21,16 +21,17 @@ class BackendAPIClient:
         self.backend_url = backend_url or settings.BACKEND_API_URL
         self.timeout = 30.0  # 30초 타임아웃
 
-    async def get_talent_profile(self, user_id: int, access_token: str) -> CandidateProfile:
+    async def get_talent_profile(self, access_token: str) -> CandidateProfile:
         """
         인재 프로필 조회 (GET /api/me/talent/full)
 
+        JWT 토큰으로 현재 사용자를 식별하여 프로필 반환
+
         Args:
-            user_id: 사용자 ID (로깅용)
             access_token: JWT 액세스 토큰
 
         Returns:
-            CandidateProfile
+            CandidateProfile (profile.basic.user_id에 사용자 ID 포함)
 
         Raises:
             httpx.HTTPStatusError: API 호출 실패
@@ -57,37 +58,6 @@ class BackendAPIClient:
 
             # CandidateProfile로 변환
             return CandidateProfile(**profile_data)
-
-    async def get_company_profile(self, user_id: int, access_token: str) -> dict:
-        """
-        기업 프로필 조회 (GET /api/me/company/)
-
-        Args:
-            user_id: 사용자 ID
-            access_token: JWT 액세스 토큰
-
-        Returns:
-            기업 프로필 dict
-
-        Raises:
-            httpx.HTTPStatusError: API 호출 실패
-        """
-        url = f"{self.backend_url}/api/me/company/"
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json"
-        }
-
-        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
-            response = await client.get(url, headers=headers)
-            response.raise_for_status()
-
-            data = response.json()
-
-            if not data.get("ok"):
-                raise ValueError(f"Backend API returned ok=false: {data}")
-
-            return data.get("data", {})
 
     async def post_talent_card(self, talent_card_data: dict, access_token: str) -> dict:
         """

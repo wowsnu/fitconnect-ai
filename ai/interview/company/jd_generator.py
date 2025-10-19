@@ -20,16 +20,17 @@ from config.settings import get_settings
 class JobPostingData(BaseModel):
     """채용공고 데이터"""
     title: str = Field(description="직무명")
-    responsibilities: List[str] = Field(description="주요 업무 (정확히 4개)", min_length=4, max_length=4)
-    requirements_must: List[str] = Field(description="필수 요건 (정확히 4개)", min_length=4, max_length=4)
-    requirements_nice: List[str] = Field(description="우대 요건 (정확히 4개)", min_length=4, max_length=4)
-    competencies: List[str] = Field(description="요구 역량 (정확히 4개)", min_length=4, max_length=4)
+    responsibilities: List[str] = Field(description="주요 업무 (자유 개수, 구체적으로)")
+    requirements_must: List[str] = Field(description="필수 요건 (자유 개수, 구체적으로)")
+    requirements_nice: List[str] = Field(description="우대 요건 (자유 개수)")
+    competencies: List[str] = Field(description="요구 역량 (자유 개수)")
 
 
 def create_job_posting_from_interview(
     general_analysis: CompanyGeneralAnalysis,
     technical_requirements: TechnicalRequirements,
-    team_fit_analysis: TeamCultureProfile
+    team_fit_analysis: TeamCultureProfile,
+    company_profile: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     면접 분석 결과를 LLM 기반 채용공고 데이터로 변환
@@ -38,6 +39,7 @@ def create_job_posting_from_interview(
         general_analysis: General 면접 분석 결과
         technical_requirements: Technical 면접 분석 결과
         team_fit_analysis: Situational 면접 분석 결과
+        company_profile: 기업 프로필 정보 (선택)
 
     Returns:
         채용공고 POST 요청에 필요한 dict
@@ -73,24 +75,35 @@ def create_job_posting_from_interview(
 
 **작성 규칙:**
 
-1. **title**: 직무명 (Technical 분석의 job_title 사용)
+1. **title**: 직무명 (한글로 작성)
 
-2. **responsibilities**: 주요 업무
+2. **responsibilities**: 주요 업무 (한글로)
    - 리스트 형태로 반환
+   - **중요: 3개~7개 사이로 작성**
+   - 분석 결과에 따라 필요한 만큼 유연하게 작성
    - 구체적이고 명확하게 작성
-   - 예: ["RESTful API 설계 및 개발", "데이터베이스 최적화 및 관리", ...]
+   - 예: ["RESTful API 설계 및 개발", "데이터베이스 최적화 및 관리", "CI/CD 파이프라인 구축", "모니터링 시스템 운영", "기술 문서 작성"]
 
-3. **requirements_must**: 필수 요건
+3. **requirements_must**: 필수 요건 (한글로)
    - 리스트 형태로 반환
-   - 예: ["Python 5년 이상 경험", "FastAPI 프레임워크 실무 경험", ...]
+   - **중요: 3개~7개 사이로 작성**
+   - 분석 결과에 따라 필요한 만큼 유연하게 작성
+   - 예: ["컴퓨터공학 전공", "Python 5년 이상 경험", "클라우드 인프라 구축 경험", "대규모 트래픽 처리 경험", "팀 리딩 경험"]
 
-4. **requirements_nice**: 우대 사항
+4. **requirements_nice**: 우대 사항 (한글로)
    - 리스트 형태로 반환
+   - **중요: 3개~7개 사이로 작성**
+   - 분석 결과에 따라 필요한 만큼 유연하게 작성
 
-5. **competencies**: 요구 역량
-   - 예: ["Python", "FastAPI", "PostgreSQL", "AWS"]
+5. **competencies**: 요구 역량 (한글로)
+   - 리스트 형태로 반환
+   - **중요: 3개~7개 사이로 작성**
+   - 분석 결과에서 언급된 모든 기술/역량을 포함하여 구체적인 수준까지 기술
+   - 예: ["Python", "FastAPI", "PostgreSQL", "AWS", "Docker", "Kubernetes", "Redis", "Kafka"]
 
 **중요:**
+- 모든 내용을 한글로만 작성 (기술 용어도 한글 표기 우선)
+- **4개로 고정하지 마세요** - 분석 결과에 따라 3~7개(competencies는 5~10개) 사이로 유연하게
 - 실제 분석 결과에 있는 내용만 사용
 - 추측하거나 과장하지 말 것
 - 명확하고 구체적으로 작성
@@ -114,14 +127,67 @@ def create_job_posting_from_interview(
     job_posting["responsibilities"] = "\n".join([f"- {r}" for r in result.responsibilities])
     job_posting["requirements_must"] = "\n".join([f"- {r}" for r in result.requirements_must])
     job_posting["requirements_nice"] = "\n".join([f"- {r}" for r in result.requirements_nice])
-    # competencies는 리스트 그대로 유지
+    job_posting["competencies"] = ", ".join(result.competencies)  # List → 문자열 변환
 
-    # 필수 필드들 (기본값 설정)
-    job_posting["location_city"] = "서울"
-    job_posting["career_level"] = "MID_SENIOR"
-    job_posting["education_level"] = "Bachelor"
-    job_posting["employment_type"] = "FULL_TIME"
+    # 백엔드 API enum에 맞게 location_city 정규화
+    def normalize_location_city(location: str) -> str:
+        """기업 프로필의 location을 백엔드 enum에 맞게 변환"""
+        if not location:
+            return "서울"
+
+        # 허용되는 값 목록
+        allowed = ['서울', '경기', '인천', '부산', '대구', '대전', '광주', '울산', '강원', '충북', '충남', '전북', '전남', '경북', '경남']
+
+        # 이미 허용된 값이면 그대로 반환
+        if location in allowed:
+            return location
+
+        # 문자열에서 지역명 추출
+        for region in allowed:
+            if region in location:
+                return region
+
+        # 매칭 실패하면 기본값
+        return "서울"
+
+    # 기업 프로필에서 정보 추출 (없으면 기본값)
+    location_city = "서울"
+    employment_type = "정규직"
+    career_level = "경력무관"
+    education_level = "학력무관"
+
+    if company_profile:
+        basic = company_profile.get("basic", {})
+        raw_location = basic.get("location_city", "서울")
+        location_city = normalize_location_city(raw_location)
+        employment_type = basic.get("employment_type", "정규직")
+        career_level = basic.get("career_level", "경력무관")
+        education_level = basic.get("education_level", "학력무관")
+
+    # 필수 필드들 (백엔드 API 스키마에 맞게 설정)
+    job_posting["location_city"] = location_city
+    job_posting["career_level"] = career_level
+    job_posting["education_level"] = education_level
+    job_posting["employment_type"] = employment_type
     job_posting["status"] = "DRAFT"
+    job_posting["salary_range"] = None  # 선택 필드
+    job_posting["position"] = "Backend"  # 기본값
+    job_posting["position_group"] = "Engineering"  # 기본값
+    job_posting["department"] = "Development"  # 기본값
+    job_posting["contact_email"] = None  # 선택 필드
+    job_posting["contact_phone"] = None  # 선택 필드
+    job_posting["deadline_date"] = None  # 선택 필드
+    job_posting["start_date"] = None  # 선택 필드
+    job_posting["salary_band"] = None  # 선택 필드
+    job_posting["term_months"] = None  # 선택 필드
+    job_posting["homepage_url"] = None  # 선택 필드
+    job_posting["jd_file_id"] = None  # 선택 필드
+    job_posting["extra_file_id"] = None  # 선택 필드
+
+    # 디버그: 생성된 job_posting 데이터 출력
+    import json
+    print("[DEBUG] Generated job_posting data:")
+    print(json.dumps(job_posting, ensure_ascii=False, indent=2))
 
     return job_posting
 
@@ -129,15 +195,15 @@ def create_job_posting_from_interview(
 # 카드 데이터 스키마 정의
 class JobPostingCardData(BaseModel):
     """채용공고 카드 데이터"""
-    header_title: str = Field(description="카드 헤더 제목 (직무명)")
-    badge_role: str = Field(description="역할 뱃지 (예: Backend, Frontend)")
-    headline: str = Field(description="한 줄 요약 (매력적인 헤드라인)")
-    responsibilities: List[str] = Field(description="주요 역할/업무 4개", min_length=4, max_length=4)
-    requirements: List[str] = Field(description="자격 요건 4개", min_length=4, max_length=4)
-    required_competencies: List[str] = Field(description="요구 역량 4개", min_length=4, max_length=4)
-    company_info: str = Field(description="기업 정보 (팀 문화 + 업무 방식, 2-3문장)")
-    talent_persona: str = Field(description="이상적인 인재상 (2-3문장)")
-    challenge_task: str = Field(description="도전 과제 (긍정적으로 재구성, 2-3문장)")
+    header_title: str = Field(description="카드 헤더 제목 (직무명, 한글)")
+    badge_role: str = Field(description="역할 뱃지 (예: 백엔드, 프론트엔드)")
+    headline: str = Field(description="한 줄 요약 (매력적인 헤드라인, 한글)")
+    responsibilities: List[str] = Field(description="주요 역할/업무 4개 (한글)", min_length=4, max_length=4)
+    requirements: List[str] = Field(description="자격 요건 4개 (한글)", min_length=4, max_length=4)
+    required_competencies: List[str] = Field(description="요구 역량 4개 (구체적으로: 기술명 + 경력/수준, 한글)", min_length=4, max_length=4)
+    company_info: str = Field(description="기업 정보 (팀 문화 + 업무 방식, 1문장으로 요약, 한글)")
+    talent_persona: str = Field(description="이상적인 인재상 (1문장, 한글)")
+    challenge_task: str = Field(description="도전 과제 (긍정적으로 재구성, 1문장으로 요약 , 한글)")
 
 
 def create_job_posting_card_from_interview(
@@ -146,7 +212,8 @@ def create_job_posting_card_from_interview(
     team_fit_analysis: TeamCultureProfile,
     job_posting_id: int,
     company_name: str,
-    job_posting_data: Dict[str, Any]
+    job_posting_data: Dict[str, Any],
+    company_profile: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     면접 분석 결과를 LLM 기반 채용공고 카드 데이터로 변환
@@ -172,7 +239,7 @@ def create_job_posting_card_from_interview(
 {job_posting_data.get('requirements_must', '')}
 - 우대 사항:
 {job_posting_data.get('requirements_nice', '')}
-- 요구 역량: {', '.join(job_posting_data.get('competencies', []))}
+- 요구 역량: {job_posting_data.get('competencies', '')}
 """
 
     # 컨텍스트 구성
@@ -211,35 +278,43 @@ def create_job_posting_card_from_interview(
 
 **생성 규칙:**
 
-1. **header_title**: 직무명 (Technical 분석의 job_title 사용)
+1. **header_title**: 직무명 (한글로 작성)
 
-2. **badge_role**: 역할 뱃지 (예: "Backend", "Frontend", "DevOps" 등)
+2. **badge_role**: 역할 뱃지 (한글로: "백엔드", "프론트엔드", "데브옵스" 등)
 
-3. **headline**: 매력적인 한 줄 요약
+3. **headline**: 매력적인 한 줄 요약 (한글로)
    - 채용 이유와 직무를 결합하여 임팩트 있게
    - 예: "혁신적인 기술로 금융의 미래를 만들어갈 시니어 백엔드 개발자를 찾습니다"
 
-4. **responsibilities**: 주요 역할/업무 **정확히 4개**
+4. **responsibilities**: 주요 역할/업무 **정확히 4개** (한글로)
    - 구체적이고 명확하게
+   - 예: "RESTful API 설계 및 개발", "마이크로서비스 아키텍처 설계"
 
-5. **requirements**: 자격 요건 **정확히 4개**
+5. **requirements**: 자격 요건 **정확히 4개** (한글로)
+   - 예: "컴퓨터공학 또는 관련 학과 전공", "5년 이상의 백엔드 개발 경력"
 
-6. **required_competencies**: 요구 역량 **정확히 4개**
+6. **required_competencies**: 요구 역량 **정확히 4개** (구체적으로, 한글로)
+   - **중요**: 기술/언어명 + 경력 또는 숙련도 필수 포함
+   - ✅ 좋은 예: "Python 5년 이상 실무 경험", "React 고급 수준", "AWS 클라우드 3년 이상", "Docker/Kubernetes 중급 이상"
+   - ❌ 나쁜 예: "Python", "React", "AWS", "Docker" (이렇게 기술명만 나열하지 마세요)
+   - 면접 분석에서 파악된 필요 경력 수준을 반영할 것
 
-7. **company_info**: 기업 정보 (2-3문장)
+7. **company_info**: 기업 정보 (1문장으로 요약, 한글로)
    - General 분석의 team_culture + work_style 통합
    - 매력적으로 재구성
 
-8. **talent_persona**: 인재상 (2-3문장)
+8. **talent_persona**: 인재상 (1문장으로 요약, 한글로)
    - General의 ideal_candidate_traits + Situational 분석 통합
    - 구체적인 특징으로 정리
 
-9. **challenge_task**: 도전 과제 (2-3문장)
+9. **challenge_task**: 도전 과제 (1문장으로 요약, 한글로)
    - Technical의 expected_challenges 활용
    - 긍정적으로 재구성
 
 **중요:**
+- 모든 내용을 한글로만 작성 (기술명도 한글로, 또는 영문 기술명에 한글 설명 추가)
 - responsibilities, requirements, required_competencies는 **반드시 정확히 4개씩**
+- required_competencies는 반드시 경력/수준을 포함하여 구체적으로 작성
 - 실제 분석 결과에 있는 내용만 사용
 - 추측하거나 과장하지 말 것
 - 일관성 있고 매력적인 공고로 작성
@@ -261,7 +336,23 @@ def create_job_posting_card_from_interview(
     card_data["job_posting_id"] = job_posting_id
     card_data["deadline_date"] = None  # 선택 필드
 
-    # posting_info는 빈 dict로 (백엔드 스키마에 맞게)
-    card_data["posting_info"] = {}
+    # posting_info에 회사 기본 정보 추가
+    posting_info = {}
+    if company_profile:
+        basic = company_profile.get("basic", {})
+        about = company_profile.get("about", {})
+
+        posting_info = {
+            "company_name": basic.get("name", company_name),
+            "company_description": about.get("description", ""),
+            "company_culture": about.get("culture", ""),
+            "vision_mission": about.get("vision_mission", ""),
+            "business_domains": about.get("business_domains", ""),
+            "website_url": basic.get("website_url", ""),
+            "logo_url": basic.get("logo_url", ""),
+        }
+        print(f"[INFO] Added company profile to card posting_info")
+
+    card_data["posting_info"] = posting_info
 
     return card_data

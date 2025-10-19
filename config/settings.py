@@ -3,7 +3,9 @@ Configuration settings for FitConnect Backend
 """
 
 import os
-from typing import Optional
+import json
+from typing import Optional, Union
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
@@ -33,10 +35,26 @@ class Settings(BaseSettings):
     UPLOAD_DIRECTORY: str = "./uploads"
 
     # CORS
-    BACKEND_CORS_ORIGINS: list = ["http://localhost:3000", "http://localhost:8080"]
+    BACKEND_CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:8080", "http://localhost:5173"]
 
     # Backend API URL (for calling main backend from AI service)
     BACKEND_API_URL: str = "http://localhost:8000"
+
+    @field_validator('BACKEND_CORS_ORIGINS', mode='before')
+    @classmethod
+    def parse_cors_origins(cls, v: Union[str, list]) -> list:
+        """Parse CORS origins from string or list"""
+        if isinstance(v, str):
+            # Try to parse as JSON first
+            try:
+                parsed = json.loads(v)
+                if isinstance(parsed, list):
+                    return parsed
+            except json.JSONDecodeError:
+                pass
+            # Fallback to comma-separated values
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v
 
     class Config:
         env_file = ".env"

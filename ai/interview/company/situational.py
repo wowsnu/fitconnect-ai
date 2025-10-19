@@ -2,7 +2,7 @@
 Company Situational Interview (기업 면접 - Situational 단계)
 
 - 고정 질문 5개
-- 실시간 추천 질문 2-3개 (답변 분석 후 동적 생성)
+- 실시간 추천 질문 3개 (답변 분석 후 동적 생성)
 - 팀 문화 & 적합 인재상 구체화
 """
 
@@ -65,7 +65,7 @@ class CompanySituationalInterview:
                 "question": question,
                 "type": "fixed",
                 "number": self.current_index,
-                "total_fixed": len(self.fixed_questions)
+                "total_fixed": 8  # 총 8개로 고정
             }
 
         # 2. 고정 질문 완료 후 동적 질문
@@ -78,7 +78,7 @@ class CompanySituationalInterview:
                 "type": "dynamic",
                 "purpose": question.purpose,
                 "number": self.current_index,
-                "total_fixed": len(self.fixed_questions)
+                "total_fixed": 8  # 총 8개로 고정
             }
 
         return None
@@ -114,7 +114,8 @@ class CompanySituationalInterview:
         # 다음 질문 가져오기
         next_q = self.get_next_question()
 
-        total_q = len(self.fixed_questions) + len(self.dynamic_questions)
+        # 총 질문 수는 항상 8개로 고정 (고정 5 + 동적 3)
+        total_q = 8
         # is_finished는 next_q가 None인지로 판단 (더 정확함)
         is_done = next_q is None
         print(f"[DEBUG] Situational - current_index: {self.current_index}, total_questions: {total_q}, is_finished: {is_done}, next_question: {next_q is not None}")
@@ -128,7 +129,7 @@ class CompanySituationalInterview:
         }
 
     def _generate_dynamic_questions(self):
-        """실시간 추천 질문 생성 (2-3개)"""
+        """실시간 추천 질문 생성 (정확히 3개)"""
         # 고정 질문 답변만 사용
         fixed_answers = [a for a in self.answers if a["type"] == "fixed"]
 
@@ -165,7 +166,7 @@ class CompanySituationalInterview:
         prompt = ChatPromptTemplate.from_messages([
             ("system", """당신은 HR 채용 전문가입니다.
 
-Situational 면접의 고정 질문 답변을 분석하여, 팀 핏을 더 구체화할 수 있는 follow-up 질문을 2-3개 생성하세요.
+Situational 면접의 고정 질문 답변을 분석하여, 팀 핏을 더 구체화할 수 있는 follow-up 질문을 정확히 3개 생성하세요.
 
 **목표:**
 - 답변에서 언급된 팀 특성을 더 구체화
@@ -178,9 +179,10 @@ Situational 면접의 고정 질문 답변을 분석하여, 팀 핏을 더 구�
 - "원격 근무 상황에서도 협업이 원활한 사람을 찾으시나요?"
 
 **중요:**
+- 모든 질문을 한글로만 작성하세요 (영어 질문 금지)
 - 실제 답변 내용을 바탕으로 질문 생성
 - 팀 문화와 직무 특성을 연결하여 질문
-- 2-3개의 질문만 생성
+- 정확히 3개의 질문만 생성 (2개도 4개도 아닌 3개)
 """),
             ("user", f"{context}{company_context}\n[Situational 고정 질문 답변]\n{all_qa}")
         ])
@@ -197,8 +199,8 @@ Situational 면접의 고정 질문 답변을 분석하여, 팀 핏을 더 구�
 
     def is_finished(self) -> bool:
         """모든 질문 완료 여부"""
-        total_questions = len(self.fixed_questions) + len(self.dynamic_questions)
-        return self.current_index >= total_questions
+        # 총 8개 고정 (고정 5 + 동적 3)
+        return self.current_index >= 8
 
     def get_answers(self) -> List[dict]:
         """모든 Q&A 반환"""

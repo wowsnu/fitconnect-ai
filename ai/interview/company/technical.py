@@ -2,7 +2,7 @@
 Company Technical Interview (기업 면접 - Technical 단계)
 
 - 고정 질문 5개
-- 실시간 추천 질문 2-3개 (답변 분석 후 동적 생성)
+- 실시간 추천 질문 3개 (답변 분석 후 동적 생성)
 - 직무 적합성: 필수/우대 역량, 주요 업무 정의
 """
 
@@ -111,7 +111,7 @@ class CompanyTechnicalInterview:
                 "question": question,
                 "type": "fixed",
                 "number": self.current_index,
-                "total_fixed": len(self.fixed_questions)
+                "total_fixed": 8  # 총 8개로 고정
             }
 
         # 2. 고정 질문 완료 후 동적 질문
@@ -124,7 +124,7 @@ class CompanyTechnicalInterview:
                 "type": "dynamic",
                 "purpose": question.purpose,
                 "number": self.current_index,
-                "total_fixed": len(self.fixed_questions)
+                "total_fixed": 8  # 총 8개로 고정
             }
 
         return None
@@ -160,7 +160,8 @@ class CompanyTechnicalInterview:
         # 다음 질문 가져오기
         next_q = self.get_next_question()
 
-        total_q = len(self.fixed_questions) + len(self.dynamic_questions)
+        # 총 질문 수는 항상 8개로 고정 (고정 5 + 동적 3)
+        total_q = 8
         # is_finished는 next_q가 None인지로 판단 (더 정확함)
         is_done = next_q is None
         print(f"[DEBUG] Technical - current_index: {self.current_index}, total_questions: {total_q}, is_finished: {is_done}, next_question: {next_q is not None}")
@@ -174,7 +175,7 @@ class CompanyTechnicalInterview:
         }
 
     def _generate_dynamic_questions(self):
-        """실시간 추천 질문 생성 (2-3개)"""
+        """실시간 추천 질문 생성 (정확히 3개)"""
         # 고정 질문 답변만 사용
         fixed_answers = [a for a in self.answers if a["type"] == "fixed"]
 
@@ -214,7 +215,7 @@ class CompanyTechnicalInterview:
         prompt = ChatPromptTemplate.from_messages([
             ("system", """당신은 HR 채용 전문가입니다.
 
-Technical 면접의 고정 질문 답변을 분석하여, 더 구체적으로 파고들 수 있는 follow-up 질문을 2-3개 생성하세요.
+Technical 면접의 고정 질문 답변을 분석하여, 더 구체적으로 파고들 수 있는 follow-up 질문을 정확히 3개 생성하세요.
 
 **목표:**
 - 답변이 모호하거나 추상적인 부분을 구체화
@@ -228,9 +229,10 @@ Technical 면접의 고정 질문 답변을 분석하여, 더 구체적으로 �
 - "온보딩 기간은 어느 정도 예상하시나요?"
 
 **중요:**
+- 모든 질문을 한글로만 작성하세요 (영어 질문 금지)
 - 실제 답변 내용을 바탕으로 질문 생성
 - 추측하지 말고, 명확히 할 필요가 있는 부분만 질문
-- 2-3개의 질문만 생성 (너무 많으면 부담)
+- 정확히 3개의 질문만 생성 (2개도 4개도 아닌 3개)
 """),
             ("user", f"{general_summary}\n{company_context}{jd_context}\n[Technical 고정 질문 답변]\n{all_qa}")
         ])
@@ -247,8 +249,8 @@ Technical 면접의 고정 질문 답변을 분석하여, 더 구체적으로 �
 
     def is_finished(self) -> bool:
         """모든 질문 완료 여부"""
-        total_questions = len(self.fixed_questions) + len(self.dynamic_questions)
-        return self.current_index >= total_questions
+        # 총 8개 고정 (고정 5 + 동적 3)
+        return self.current_index >= 8
 
     def get_answers(self) -> List[dict]:
         """모든 Q&A 반환"""

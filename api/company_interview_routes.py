@@ -379,6 +379,9 @@ async def start_company_technical_interview(request: StartTechnicalInterviewRequ
         # 세션에 전체 회사 프로필 저장 (카드 생성 시 사용)
         session.company_info = full_company_profile
         print(f"[INFO] Loaded company info for dynamic questions")
+        print(f"[DEBUG] company_profile structure: {full_company_profile.keys() if full_company_profile else 'None'}")
+        if full_company_profile and "basic" in full_company_profile:
+            print(f"[DEBUG] basic fields: {full_company_profile['basic'].keys()}")
     except Exception as e:
         print(f"[WARNING] Failed to load company profile: {str(e)}")
 
@@ -698,7 +701,8 @@ async def create_situational_analysis_with_jd(request: SituationalAnalysisReques
         general_analysis=session.general_analysis,
         technical_requirements=session.technical_requirements,
         team_fit_analysis=session.situational_profile,
-        company_profile=session.company_info  # 기업 프로필 전달
+        company_profile=session.company_info,  # 기업 프로필 전달
+        existing_jd=existing_jd  # 기존 JD 전달
     )
 
     # 기존 JD가 있으면 4개 필드만 업데이트

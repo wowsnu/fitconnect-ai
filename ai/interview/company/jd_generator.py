@@ -30,7 +30,8 @@ def create_job_posting_from_interview(
     general_analysis: CompanyGeneralAnalysis,
     technical_requirements: TechnicalRequirements,
     team_fit_analysis: TeamCultureProfile,
-    company_profile: Optional[Dict[str, Any]] = None
+    company_profile: Optional[Dict[str, Any]] = None,
+    existing_jd: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     면접 분석 결과를 LLM 기반 채용공고 데이터로 변환
@@ -40,6 +41,7 @@ def create_job_posting_from_interview(
         technical_requirements: Technical 면접 분석 결과
         team_fit_analysis: Situational 면접 분석 결과
         company_profile: 기업 프로필 정보 (선택)
+        existing_jd: 기존 채용공고 데이터 (선택)
 
     Returns:
         채용공고 POST 요청에 필요한 dict
@@ -150,19 +152,35 @@ def create_job_posting_from_interview(
         # 매칭 실패하면 기본값
         return "서울"
 
-    # 기업 프로필에서 정보 추출 (없으면 기본값)
+    # 기존 JD에서 정보 추출 (우선순위 1)
     location_city = "서울"
     employment_type = "정규직"
     career_level = "경력무관"
     education_level = "학력무관"
+    position = "Backend"
+    position_group = "Engineering"
+    department = "Development"
 
-    if company_profile:
+    if existing_jd:
+        print(f"[DEBUG] Using existing JD data for metadata fields")
+        location_city = existing_jd.get("location_city", "서울")
+        employment_type = existing_jd.get("employment_type", "정규직")
+        career_level = existing_jd.get("career_level", "경력무관")
+        education_level = existing_jd.get("education_level", "학력무관")
+        position = existing_jd.get("position", "Backend")
+        position_group = existing_jd.get("position_group", "Engineering")
+        department = existing_jd.get("department", "Development")
+        print(f"[DEBUG] From existing JD - location: {location_city}, employment: {employment_type}, position: {position}")
+    elif company_profile:
+        # 기존 JD 없으면 기업 프로필에서 가져오기 (우선순위 2)
+        print(f"[DEBUG] company_profile keys: {company_profile.keys() if company_profile else 'None'}")
         basic = company_profile.get("basic", {})
+        print(f"[DEBUG] basic data: {basic}")
         raw_location = basic.get("location_city", "서울")
         location_city = normalize_location_city(raw_location)
-        employment_type = basic.get("employment_type", "정규직")
-        career_level = basic.get("career_level", "경력무관")
-        education_level = basic.get("education_level", "학력무관")
+        print(f"[DEBUG] Extracted from profile - location: {location_city}")
+    else:
+        print("[DEBUG] No existing JD or company_profile, using default values")
 
     # 필수 필드들 (백엔드 API 스키마에 맞게 설정)
     job_posting["location_city"] = location_city
@@ -171,9 +189,9 @@ def create_job_posting_from_interview(
     job_posting["employment_type"] = employment_type
     job_posting["status"] = "DRAFT"
     job_posting["salary_range"] = None  # 선택 필드
-    job_posting["position"] = "Backend"  # 기본값
-    job_posting["position_group"] = "Engineering"  # 기본값
-    job_posting["department"] = "Development"  # 기본값
+    job_posting["position"] = position
+    job_posting["position_group"] = position_group
+    job_posting["department"] = department
     job_posting["contact_email"] = None  # 선택 필드
     job_posting["contact_phone"] = None  # 선택 필드
     job_posting["deadline_date"] = None  # 선택 필드

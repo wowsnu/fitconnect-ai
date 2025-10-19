@@ -853,10 +853,21 @@ async def generate_card_and_vectors(request: GenerateCardRequest):
     )
 
     # 백엔드에 카드 POST
-    created_card = await backend_client.create_job_posting_card(
-        access_token=request.access_token,
-        card_data=card_data
-    )
+    try:
+        created_card = await backend_client.create_job_posting_card(
+            access_token=request.access_token,
+            card_data=card_data
+        )
+    except ValueError as e:
+        if "409" in str(e) and job_posting_id:
+            print(f"[INFO] Job posting card already exists for job_posting_id={job_posting_id}. Updating instead.")
+            created_card = await backend_client.update_job_posting_card(
+                job_posting_id=job_posting_id,
+                access_token=request.access_token,
+                card_data=card_data
+            )
+        else:
+            raise
 
     # 매칭 벡터 생성
     from ai.matching.company_vector_generator import generate_company_matching_vectors

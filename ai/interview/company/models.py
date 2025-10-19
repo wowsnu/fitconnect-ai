@@ -53,23 +53,23 @@ class TechnicalRequirements(BaseModel):
     )
 
     main_responsibilities: List[str] = Field(
-        description="주요 업무 (4개)",
-        min_length=4,
-        max_length=4,
+        description="주요 업무 (3~8개)",
+        min_length=3,
+        max_length=8,
         default_factory=list
     )
 
     required_skills: List[str] = Field(
-        description="필수 역량 (4개)",
-        min_length=4,
-        max_length=4,
+        description="필수 역량 (3~8개)",
+        min_length=3,
+        max_length=8,
         default_factory=list
     )
 
     preferred_skills: List[str] = Field(
-        description="우대 역량 (4개)",
-        min_length=4,
-        max_length=4,
+        description="우대 역량 (3~8개)",
+        min_length=3,
+        max_length=8,
         default_factory=list
     )
 

@@ -300,6 +300,7 @@ Technical 면접 답변을 분석하여, 채용 공고에 들어갈 직무 정�
 - main_responsibilities, required_skills, preferred_skills는 
 - 구체적이고 명확한 표현 사용
 - General 면접 결과와 일관성 유지
+
 """),
         ("user", f"{general_summary}\n\n[Technical 면접 답변]\n{all_qa}")
     ])

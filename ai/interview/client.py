@@ -96,20 +96,30 @@ class BackendAPIClient:
 
             return data.get("data", {})
 
-    async def post_matching_vectors(self, vectors_data: dict, access_token: str, role: str = "talent") -> dict:
+    async def post_matching_vectors(
+        self,
+        vectors_data: dict,
+        access_token: str,
+        role: str = "talent",
+        job_posting_id: int = None
+    ) -> dict:
         """
         매칭 벡터 전송 (POST /api/me/matching-vectors)
+
+        이미 존재하면 자동으로 PATCH로 업데이트
 
         Args:
             vectors_data: 매칭 벡터 데이터 (vector_roles, vector_skills, etc.)
             access_token: JWT 액세스 토큰
             role: "talent" 또는 "company"
+            job_posting_id: 채용공고 ID (company인 경우 필수)
 
         Returns:
             저장된 벡터 정보 dict
 
         Raises:
             httpx.HTTPStatusError: API 호출 실패
+            ValueError: company인데 job_posting_id가 없는 경우
         """
         url = f"{self.backend_url}/api/me/matching-vectors"
         headers = {
@@ -120,13 +130,46 @@ class BackendAPIClient:
         # role 필드 추가
         payload = {**vectors_data, "role": role}
 
+        # company인 경우 job_posting_id 필수
+        if role == "company":
+            if not job_posting_id:
+                raise ValueError("job_posting_id is required for company role")
+            payload["job_posting_id"] = job_posting_id
+            print(f"[INFO] Adding job_posting_id={job_posting_id} for company role")
+        elif job_posting_id:
+            # talent인데 job_posting_id가 있으면 경고
+            print(f"[WARNING] job_posting_id provided for talent role, ignoring")
+
         async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
             response = await client.post(url, headers=headers, json=payload)
 
-            # 409 Conflict: 이미 존재하는 경우 기존 벡터 유지
+            # 409 Conflict: 이미 존재하는 경우 PATCH로 업데이트
             if response.status_code == 409:
-                print(f"[INFO] Matching vector already exists, using existing one")
-                return {"id": "existing", "status": "conflict", "message": "Using existing matching vector"}
+                print(f"[INFO] Matching vector already exists. Attempting to update with PATCH...")
+
+                # 409 응답에서 기존 벡터 ID를 받을 수 있는지 확인
+                conflict_data = response.json()
+                existing_vector_id = None
+
+                # 백엔드가 기존 벡터 정보를 반환하는 경우
+                if conflict_data.get("data") and conflict_data["data"].get("id"):
+                    existing_vector_id = conflict_data["data"]["id"]
+                    print(f"[INFO] Found existing vector ID from 409 response: {existing_vector_id}")
+                else:
+                    # 벡터 ID를 찾기 위해 GET 요청
+                    print(f"[INFO] Getting existing vector ID from GET request...")
+                    existing_vector_id = await self._get_matching_vector_id(access_token, role, job_posting_id)
+
+                if existing_vector_id:
+                    # PATCH로 업데이트
+                    return await self.update_matching_vectors(
+                        matching_vector_id=existing_vector_id,
+                        vectors_data=vectors_data,
+                        access_token=access_token
+                    )
+                else:
+                    print(f"[WARNING] Could not find existing vector ID. Using existing vector without update.")
+                    return {"id": "existing", "status": "conflict", "message": "Using existing matching vector"}
 
             response.raise_for_status()
 
@@ -136,6 +179,96 @@ class BackendAPIClient:
                 raise ValueError(f"Backend API returned ok=false: {data}")
 
             return data.get("data", {})
+
+    async def update_matching_vectors(
+        self,
+        matching_vector_id: int,
+        vectors_data: dict,
+        access_token: str
+    ) -> dict:
+        """
+        매칭 벡터 업데이트 (PATCH /api/me/matching-vectors/{matching_vector_id})
+
+        Args:
+            matching_vector_id: 매칭 벡터 ID
+            vectors_data: 업데이트할 벡터 데이터
+            access_token: JWT 액세스 토큰
+
+        Returns:
+            업데이트된 벡터 정보 dict
+
+        Raises:
+            httpx.HTTPStatusError: API 호출 실패
+        """
+        url = f"{self.backend_url}/api/me/matching-vectors/{matching_vector_id}"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+
+        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
+            response = await client.patch(url, headers=headers, json=vectors_data)
+
+            if response.status_code not in [200, 201]:
+                error_detail = response.text
+                raise ValueError(f"Backend API error {response.status_code}: {error_detail}")
+
+            data = response.json()
+
+            if not data.get("ok"):
+                raise ValueError(f"Backend API returned ok=false: {data}")
+
+            print(f"[INFO] Matching vector {matching_vector_id} updated successfully")
+            return data.get("data", {})
+
+    async def _get_matching_vector_id(
+        self,
+        access_token: str,
+        role: str,
+        job_posting_id: int = None
+    ) -> int:
+        """
+        사용자의 매칭 벡터 ID 조회 (내부 헬퍼 메서드)
+
+        Args:
+            access_token: JWT 액세스 토큰
+            role: "talent" 또는 "company"
+            job_posting_id: 채용공고 ID (company인 경우)
+
+        Returns:
+            매칭 벡터 ID (없으면 None)
+        """
+        # GET /api/me/matching-vectors로 내 벡터 목록 조회
+        url = f"{self.backend_url}/api/me/matching-vectors"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+
+        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
+            response = await client.get(url, headers=headers)
+
+            if response.status_code != 200:
+                print(f"[WARNING] Failed to get matching vectors: {response.status_code}")
+                return None
+
+            data = response.json()
+
+            if not data.get("ok"):
+                return None
+
+            vectors = data.get("data", [])
+
+            # role과 job_posting_id로 필터링
+            for vector in vectors:
+                if vector.get("role") == role:
+                    if role == "company":
+                        if vector.get("job_posting_id") == job_posting_id:
+                            return vector.get("id")
+                    else:  # talent
+                        return vector.get("id")
+
+            return None
 
     async def get_company_profile(self, access_token: str) -> dict:
         """

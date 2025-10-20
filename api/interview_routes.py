@@ -955,7 +955,8 @@ async def generate_matching_vectors(request: GenerateMatchingVectorsRequest):
     try:
         backend_response = await backend_client.post_matching_vectors(
             vectors_data=result["vectors"],
-            access_token=request.access_token
+            access_token=request.access_token,
+            role="talent"  # talent는 job_posting_id 없이 전송
         )
     except Exception as e:
         print(f"[ERROR] Failed to post matching vectors: {str(e)}")

@@ -83,12 +83,12 @@ def embed_matching_texts(
 
     Returns:
         {
-            "vector_roles": {"embedding": [float, ...]},
-            "vector_skills": {"embedding": [float, ...]},
-            "vector_growth": {"embedding": [float, ...]},
-            "vector_career": {"embedding": [float, ...]},
-            "vector_vision": {"embedding": [float, ...]},
-            "vector_culture": {"embedding": [float, ...]}
+            "vector_roles": {"vector": [float, ...]},
+            "vector_skills": {"vector": [float, ...]},
+            "vector_growth": {"vector": [float, ...]},
+            "vector_career": {"vector": [float, ...]},
+            "vector_vision": {"vector": [float, ...]},
+            "vector_culture": {"vector": [float, ...]}
         }
     """
     service = get_embedding_service()
@@ -105,11 +105,12 @@ def embed_matching_texts(
 
     vectors = service.embed_texts(texts)
 
+    # 백엔드 API 스펙에 맞춰 "vector" 키 사용
     return {
-        "vector_roles": {"embedding": vectors[0]},
-        "vector_skills": {"embedding": vectors[1]},
-        "vector_growth": {"embedding": vectors[2]},
-        "vector_career": {"embedding": vectors[3]},
-        "vector_vision": {"embedding": vectors[4]},
-        "vector_culture": {"embedding": vectors[5]}
+        "vector_roles": {"vector": vectors[0]},
+        "vector_skills": {"vector": vectors[1]},
+        "vector_growth": {"vector": vectors[2]},
+        "vector_career": {"vector": vectors[3]},
+        "vector_vision": {"vector": vectors[4]},
+        "vector_culture": {"vector": vectors[5]}
     }

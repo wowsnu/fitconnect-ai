@@ -680,19 +680,22 @@ async def create_situational_analysis_with_jd(request: SituationalAnalysisReques
             technical_requirements=session.technical_requirements
         )
 
-    # 기존 JD 가져오기 (job_posting_id가 있으면)
+    # 기존 JD 가져오기 (필수)
     existing_jd = None
-    if request.job_posting_id:
-        try:
-            from ai.interview.client import get_backend_client
-            backend_client = get_backend_client()
-            existing_jd = await backend_client.get_job_posting(
-                job_posting_id=request.job_posting_id,
-                access_token=request.access_token
-            )
-            print(f"[INFO] Loaded existing JD for job posting {request.job_posting_id}")
-        except Exception as e:
-            print(f"[WARNING] Failed to load existing JD: {str(e)}")
+    if not request.job_posting_id:
+        raise HTTPException(status_code=400, detail="job_posting_id is required for JD analysis")
+
+    try:
+        from ai.interview.client import get_backend_client
+        backend_client = get_backend_client()
+        existing_jd = await backend_client.get_job_posting(
+            job_posting_id=request.job_posting_id,
+            access_token=request.access_token
+        )
+        print(f"[INFO] Loaded existing JD for job posting {request.job_posting_id}")
+    except Exception as e:
+        print(f"[WARNING] Failed to load existing JD: {str(e)}")
+        raise HTTPException(status_code=404, detail="Existing job posting not found")
 
     # 면접 결과를 JD 데이터로 변환
     from ai.interview.company.jd_generator import create_job_posting_from_interview
@@ -714,8 +717,8 @@ async def create_situational_analysis_with_jd(request: SituationalAnalysisReques
         result_jd["requirements_nice"] = job_posting_data["requirements_nice"]
         result_jd["competencies"] = job_posting_data["competencies"]
     else:
-        # 기존 JD가 없으면 전체 새로 생성
-        result_jd = job_posting_data
+        # 기존 JD가 필수이므로 이 분기는 도달하지 않음
+        raise HTTPException(status_code=500, detail="Existing JD data is required")
 
     # 세션에 전체 JD 데이터 캐싱 (나중에 generate에서 사용)
     session.generated_jd = result_jd
@@ -805,10 +808,11 @@ async def generate_card_and_vectors(request: GenerateCardRequest):
     backend_client = get_backend_client()
 
     job_posting_id = request.job_posting_id
+    if not job_posting_id:
+        raise HTTPException(status_code=400, detail="job_posting_id is required for generate step")
 
-    if job_posting_id:
-        # 기존 JD가 있으면 4개 필드만 PATCH로 업데이트
-        print(f"[INFO] Updating existing job posting {job_posting_id} with 4 fields...")
+    try:
+        print(f"[INFO] Updating existing job posting {job_posting_id} with latest JD data...")
         updates = {
             "responsibilities": request.responsibilities,
             "requirements_must": request.requirements_must,
@@ -828,20 +832,17 @@ async def generate_card_and_vectors(request: GenerateCardRequest):
             access_token=request.access_token
         )
         updated_jd_data = updated_job_posting
-    else:
-        # 새로운 JD 생성
-        print("[INFO] No job_posting_id provided. Creating new job posting...")
-        print(f"[DEBUG] Job posting data to be sent: {updated_jd_data}")
-        created_job_posting = await backend_client.create_job_posting(
-            access_token=request.access_token,
-            job_posting_data=updated_jd_data
+    except Exception as e:
+        print(f"[ERROR] Failed to update job posting: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to update job posting: {str(e)}"
         )
-        job_posting_id = created_job_posting.get("id")
-        print(f"[INFO] Created new job posting with ID: {job_posting_id}")
 
     # 카드 데이터 생성
     from ai.interview.company.jd_generator import create_job_posting_card_from_interview
 
+    print(f"[INFO] Creating job posting card for job_posting_id={job_posting_id}...")
     card_data = create_job_posting_card_from_interview(
         general_analysis=session.general_analysis,
         technical_requirements=session.technical_requirements,
@@ -854,10 +855,12 @@ async def generate_card_and_vectors(request: GenerateCardRequest):
 
     # 백엔드에 카드 POST
     try:
+        print(f"[INFO] Posting job posting card to backend...")
         created_card = await backend_client.create_job_posting_card(
             access_token=request.access_token,
             card_data=card_data
         )
+        print(f"[INFO] Job posting card created successfully: id={created_card.get('id')}")
     except ValueError as e:
         if "409" in str(e) and job_posting_id:
             print(f"[INFO] Job posting card already exists for job_posting_id={job_posting_id}. Updating instead.")
@@ -866,28 +869,73 @@ async def generate_card_and_vectors(request: GenerateCardRequest):
                 access_token=request.access_token,
                 card_data=card_data
             )
+            print(f"[INFO] Job posting card updated successfully")
         else:
-            raise
+            print(f"[ERROR] Failed to create job posting card: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to create job posting card: {str(e)}"
+            )
+    except Exception as e:
+        print(f"[ERROR] Unexpected error creating job posting card: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create job posting card: {str(e)}"
+        )
 
     # 매칭 벡터 생성
     from ai.matching.company_vector_generator import generate_company_matching_vectors
 
-    matching_result = generate_company_matching_vectors(
-        general_analysis=session.general_analysis,
-        technical_requirements=session.technical_requirements,
-        team_fit_analysis=session.situational_profile,
-        company_name=session.company_name,
-        job_posting_data=updated_jd_data
-    )
+    print(f"[INFO] Generating matching vectors for job_posting_id={job_posting_id}...")
+    try:
+        matching_result = generate_company_matching_vectors(
+            general_analysis=session.general_analysis,
+            technical_requirements=session.technical_requirements,
+            team_fit_analysis=session.situational_profile,
+            company_name=session.company_name,
+            job_posting_data=updated_jd_data
+        )
+        print(f"[INFO] Matching vectors generated successfully")
+    except Exception as e:
+        print(f"[ERROR] Failed to generate matching vectors (OpenAI embedding): {e}")
+        # 벡터 생성 실패해도 카드는 생성되었으므로 부분 성공으로 응답
+        print(f"[INFO] Returning response with partial success (card created, vectors generation failed)")
+        return {
+            "success": True,
+            "job_posting_id": job_posting_id,
+            "card_id": created_card.get("id"),
+            "matching_vector_id": None,
+            "card": created_card,
+            "matching_texts": None,
+            "warning": "Matching vectors generation failed (OpenAI API error)"
+        }
 
     # 백엔드에 매칭 벡터 POST
-    created_vectors = await backend_client.post_matching_vectors(
-        vectors_data=matching_result["vectors"],
-        access_token=request.access_token,
-        role="company"
-    )
+    try:
+        print(f"[INFO] Posting matching vectors to backend for job_posting_id={job_posting_id}...")
+        created_vectors = await backend_client.post_matching_vectors(
+            vectors_data=matching_result["vectors"],
+            access_token=request.access_token,
+            role="company",
+            job_posting_id=job_posting_id  # company는 job_posting_id 필수
+        )
+        print(f"[INFO] Matching vectors posted successfully: id={created_vectors.get('id')}")
+    except Exception as e:
+        print(f"[ERROR] Failed to post matching vectors to backend: {e}")
+        # 벡터 저장 실패해도 카드는 생성되었으므로 부분 성공으로 응답
+        print(f"[INFO] Returning response with partial success (card created, vectors post failed)")
+        return {
+            "success": True,
+            "job_posting_id": job_posting_id,
+            "card_id": created_card.get("id"),
+            "matching_vector_id": None,
+            "card": created_card,
+            "matching_texts": matching_result["texts"],
+            "warning": "Matching vectors post failed (Backend API error)"
+        }
 
-    return {
+    print(f"[INFO] All operations completed successfully. Returning response...")
+    response = {
         "success": True,
         "job_posting_id": job_posting_id,  # job_posting_id 추가
         "card_id": created_card.get("id"),
@@ -895,6 +943,8 @@ async def generate_card_and_vectors(request: GenerateCardRequest):
         "card": created_card,
         "matching_texts": matching_result["texts"]
     }
+    print(f"[DEBUG] Response data: success={response['success']}, job_posting_id={response['job_posting_id']}, card_id={response['card_id']}")
+    return response
 
 
 # ==================== Job Posting Card API ====================

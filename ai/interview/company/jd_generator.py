@@ -131,83 +131,13 @@ def create_job_posting_from_interview(
     job_posting["requirements_nice"] = "\n".join([f"- {r}" for r in result.requirements_nice])
     job_posting["competencies"] = ", ".join(result.competencies)  # List → 문자열 변환
 
-    # 백엔드 API enum에 맞게 location_city 정규화
-    def normalize_location_city(location: str) -> str:
-        """기업 프로필의 location을 백엔드 enum에 맞게 변환"""
-        if not location:
-            return "서울"
-
-        # 허용되는 값 목록
-        allowed = ['서울', '경기', '인천', '부산', '대구', '대전', '광주', '울산', '강원', '충북', '충남', '전북', '전남', '경북', '경남']
-
-        # 이미 허용된 값이면 그대로 반환
-        if location in allowed:
-            return location
-
-        # 문자열에서 지역명 추출
-        for region in allowed:
-            if region in location:
-                return region
-
-        # 매칭 실패하면 기본값
-        return "서울"
-
-    # 기존 JD에서 정보 추출 (우선순위 1)
-    location_city = "서울"
-    employment_type = "정규직"
-    career_level = "경력무관"
-    education_level = "학력무관"
-    position = "Backend"
-    position_group = "Engineering"
-    department = "Development"
-
-    if existing_jd:
-        print(f"[DEBUG] Using existing JD data for metadata fields")
-        location_city = existing_jd.get("location_city", "서울")
-        employment_type = existing_jd.get("employment_type", "정규직")
-        career_level = existing_jd.get("career_level", "경력무관")
-        education_level = existing_jd.get("education_level", "학력무관")
-        position = existing_jd.get("position", "Backend")
-        position_group = existing_jd.get("position_group", "Engineering")
-        department = existing_jd.get("department", "Development")
-        print(f"[DEBUG] From existing JD - location: {location_city}, employment: {employment_type}, position: {position}")
-    elif company_profile:
-        # 기존 JD 없으면 기업 프로필에서 가져오기 (우선순위 2)
-        print(f"[DEBUG] company_profile keys: {company_profile.keys() if company_profile else 'None'}")
-        basic = company_profile.get("basic", {})
-        print(f"[DEBUG] basic data: {basic}")
-        raw_location = basic.get("location_city", "서울")
-        location_city = normalize_location_city(raw_location)
-        print(f"[DEBUG] Extracted from profile - location: {location_city}")
-    else:
-        print("[DEBUG] No existing JD or company_profile, using default values")
-
-    # 필수 필드들 (백엔드 API 스키마에 맞게 설정)
-    job_posting["location_city"] = location_city
-    job_posting["career_level"] = career_level
-    job_posting["education_level"] = education_level
-    job_posting["employment_type"] = employment_type
-    job_posting["status"] = "DRAFT"
-    job_posting["salary_range"] = None  # 선택 필드
-    job_posting["position"] = position
-    job_posting["position_group"] = position_group
-    job_posting["department"] = department
-    job_posting["contact_email"] = None  # 선택 필드
-    job_posting["contact_phone"] = None  # 선택 필드
-    job_posting["deadline_date"] = None  # 선택 필드
-    job_posting["start_date"] = None  # 선택 필드
-    job_posting["salary_band"] = None  # 선택 필드
-    job_posting["term_months"] = None  # 선택 필드
-    job_posting["homepage_url"] = None  # 선택 필드
-    job_posting["jd_file_id"] = None  # 선택 필드
-    job_posting["extra_file_id"] = None  # 선택 필드
-
-    # 디버그: 생성된 job_posting 데이터 출력
-    import json
-    print("[DEBUG] Generated job_posting data:")
-    print(json.dumps(job_posting, ensure_ascii=False, indent=2))
-
-    return job_posting
+    # 4개 필드만 반환 (기존 JD에 덮어쓰기 용)
+    return {
+        "responsibilities": job_posting["responsibilities"],
+        "requirements_must": job_posting["requirements_must"],
+        "requirements_nice": job_posting["requirements_nice"],
+        "competencies": job_posting["competencies"]
+    }
 
 
 # 카드 데이터 스키마 정의
@@ -352,7 +282,7 @@ def create_job_posting_card_from_interview(
     # dict로 변환 및 필수 필드 추가
     card_data = result.model_dump()
     card_data["job_posting_id"] = job_posting_id
-    card_data["deadline_date"] = None  # 선택 필드
+    card_data["deadline_date"] = job_posting_data.get("deadline_date")
 
     # posting_info에 회사 기본 정보 추가
     posting_info = {}

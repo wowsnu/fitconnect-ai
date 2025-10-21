@@ -63,17 +63,19 @@ class BackendAPIClient:
         """
         인재 프로필 카드 전송 (POST /api/talent_cards/)
 
+        409 에러 발생 시 자동으로 PATCH로 업데이트
+
         Args:
             talent_card_data: 백엔드 형식의 카드 데이터
             access_token: JWT 액세스 토큰
 
         Returns:
-            생성된 카드 정보 dict
+            생성된 또는 업데이트된 카드 정보 dict
 
         Raises:
             httpx.HTTPStatusError: API 호출 실패
         """
-        url = f"{self.backend_url}/api/talent_cards/"
+        url = f"{self.backend_url}/api/talent_cards"
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json"
@@ -82,10 +84,21 @@ class BackendAPIClient:
         async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
             response = await client.post(url, headers=headers, json=talent_card_data)
 
-            # 409 Conflict: 이미 존재하는 경우 기존 카드 유지
+            # 409 Conflict: 이미 존재하는 경우 PATCH로 업데이트
             if response.status_code == 409:
-                print(f"[INFO] Talent card already exists for user_id={talent_card_data.get('user_id')}, using existing one")
-                return {"id": "existing", "status": "conflict", "message": "Using existing talent card"}
+                print(f"[INFO] Talent card already exists. Attempting to update with PATCH...")
+
+                # 409 응답에서 user_id 가져오기
+                user_id = talent_card_data.get('user_id')
+                if not user_id:
+                    raise ValueError("user_id is required for updating talent card")
+
+                # PATCH로 업데이트
+                return await self.update_talent_card(
+                    user_id=user_id,
+                    card_data=talent_card_data,
+                    access_token=access_token
+                )
 
             response.raise_for_status()
 
@@ -94,6 +107,42 @@ class BackendAPIClient:
             if not data.get("ok"):
                 raise ValueError(f"Backend API returned ok=false: {data}")
 
+            return data.get("data", {})
+
+    async def update_talent_card(self, user_id: int, card_data: dict, access_token: str) -> dict:
+        """
+        인재 카드 업데이트 (PATCH /api/talent_cards/{user_id})
+
+        Args:
+            user_id: 사용자 ID (인재 카드의 식별자)
+            card_data: 업데이트할 카드 데이터
+            access_token: JWT 액세스 토큰
+
+        Returns:
+            업데이트된 카드 정보 dict
+
+        Raises:
+            httpx.HTTPStatusError: API 호출 실패
+        """
+        url = f"{self.backend_url}/api/talent_cards/{user_id}"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+
+        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
+            response = await client.patch(url, headers=headers, json=card_data)
+
+            if response.status_code not in [200, 201]:
+                error_detail = response.text
+                raise ValueError(f"Backend API error {response.status_code}: {error_detail}")
+
+            data = response.json()
+
+            if not data.get("ok"):
+                raise ValueError(f"Backend API returned ok=false: {data}")
+
+            print(f"[INFO] Talent card updated successfully for user_id={user_id}")
             return data.get("data", {})
 
     async def post_matching_vectors(
@@ -415,12 +464,14 @@ class BackendAPIClient:
         """
         채용공고 카드 생성 (POST /api/job_posting_cards/)
 
+        409 에러 발생 시 자동으로 PATCH로 업데이트
+
         Args:
             access_token: JWT 액세스 토큰
             card_data: 카드 데이터 (header_title, responsibilities, etc.)
 
         Returns:
-            생성된 카드 정보 dict
+            생성된 또는 업데이트된 카드 정보 dict
 
         Raises:
             httpx.HTTPStatusError: API 호출 실패
@@ -434,6 +485,22 @@ class BackendAPIClient:
 
         async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
             response = await client.post(url, headers=headers, json=card_data)
+
+            # 409 Conflict: 이미 존재하는 경우 PATCH로 업데이트
+            if response.status_code == 409:
+                print(f"[INFO] Job posting card already exists. Attempting to update with PATCH...")
+
+                # job_posting_id는 card_data에 포함되어 있어야 함
+                job_posting_id = card_data.get('job_posting_id')
+                if not job_posting_id:
+                    raise ValueError("job_posting_id is required for updating job posting card")
+
+                # PATCH로 업데이트
+                return await self.update_job_posting_card(
+                    job_posting_id=job_posting_id,
+                    access_token=access_token,
+                    card_data=card_data
+                )
 
             # 201 Created도 성공으로 처리
             if response.status_code not in [200, 201]:

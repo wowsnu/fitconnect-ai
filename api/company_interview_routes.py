@@ -853,34 +853,19 @@ async def generate_card_and_vectors(request: GenerateCardRequest):
         company_profile=session.company_info  # 회사 프로필 전달
     )
 
-    # 백엔드에 카드 POST
+    # 백엔드에 카드 POST (409 발생 시 자동으로 PATCH)
     try:
         print(f"[INFO] Posting job posting card to backend...")
         created_card = await backend_client.create_job_posting_card(
             access_token=request.access_token,
             card_data=card_data
         )
-        print(f"[INFO] Job posting card created successfully: id={created_card.get('id')}")
-    except ValueError as e:
-        if "409" in str(e) and job_posting_id:
-            print(f"[INFO] Job posting card already exists for job_posting_id={job_posting_id}. Updating instead.")
-            created_card = await backend_client.update_job_posting_card(
-                job_posting_id=job_posting_id,
-                access_token=request.access_token,
-                card_data=card_data
-            )
-            print(f"[INFO] Job posting card updated successfully")
-        else:
-            print(f"[ERROR] Failed to create job posting card: {e}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to create job posting card: {str(e)}"
-            )
+        print(f"[INFO] Job posting card created/updated successfully: id={created_card.get('id')}")
     except Exception as e:
-        print(f"[ERROR] Unexpected error creating job posting card: {e}")
+        print(f"[ERROR] Failed to create/update job posting card: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to create job posting card: {str(e)}"
+            detail=f"Failed to create/update job posting card: {str(e)}"
         )
 
     # 매칭 벡터 생성

@@ -30,25 +30,14 @@ def stt_health_check() -> Dict[str, Any]:
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-def llm_health_check() -> Dict[str, Any]:
-    """LLM 서비스 상태 확인 (간단 버전)"""
-    try:
-        from ai.llm.pure_service import get_llm_service
-        service = get_llm_service()
-        return service.health_check()
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
 def ai_system_health_check() -> Dict[str, Any]:
     """전체 AI 시스템 상태 확인"""
     stt_status = stt_health_check()
-    llm_status = llm_health_check()
 
     return {
         "overall_status": "healthy",
         "services": {
-            "stt": stt_status,
-            "llm": llm_status
+            "stt": stt_status
         },
         "version": __version__
     }

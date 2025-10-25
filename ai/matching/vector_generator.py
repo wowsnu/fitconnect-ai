@@ -17,6 +17,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from ai.interview.talent.models import (
     CandidateProfile,
     GeneralInterviewAnalysis,
+    TechnicalInterviewAnalysis,
     FinalPersonaReport
 )
 from config.settings import get_settings
@@ -27,39 +28,45 @@ class TalentMatchingTexts(BaseModel):
 
     roles_text: str = Field(
         description="역할 적합도/역할 수행력 텍스트",
-        min_length=50
+        min_length=500,
+        max_length=700
     )
 
     skills_text: str = Field(
         description="역량 적합도 텍스트",
-        min_length=50
+        min_length=500,
+        max_length=700
     )
 
     growth_text: str = Field(
         description="성장 기회 제공/성장 가능성 텍스트",
-        min_length=50
+        min_length=500,
+        max_length=700
     )
 
     career_text: str = Field(
         description="커리어 방향 텍스트",
-        min_length=50
+        min_length=500,
+        max_length=700
     )
 
     vision_text: str = Field(
         description="비전 신뢰도/협업 기여도 텍스트",
-        min_length=50
+        min_length=500,
+        max_length=700
     )
 
     culture_text: str = Field(
         description="조직/문화 적합도 텍스트",
-        min_length=50
+        min_length=500,
+        max_length=700
     )
 
 
 def generate_talent_matching_texts(
     candidate_profile: CandidateProfile,
     general_analysis: GeneralInterviewAnalysis,
-    technical_results: dict,
+    technical_analysis: TechnicalInterviewAnalysis,
     situational_report: FinalPersonaReport
 ) -> TalentMatchingTexts:
     """
@@ -68,7 +75,7 @@ def generate_talent_matching_texts(
     Args:
         candidate_profile: 지원자 기본 프로필
         general_analysis: 구조화 면접 분석
-        technical_results: 직무 적합성 면접 결과
+        technical_analysis: 직무 적합성 면접 분석
         situational_report: 상황 면접 페르소나 리포트
 
     Returns:
@@ -77,29 +84,55 @@ def generate_talent_matching_texts(
 
     # 경력 정보 요약
     experience_summary = "\n".join([
-        f"- {exp.company_name} / {exp.title} ({exp.duration_years or 0}년)"
+        f"- {exp.company_name} / {exp.title} ({exp.duration_years or 0}년)" +
+        (f"\n  요약: {exp.summary}" if exp.summary else "")
         for exp in candidate_profile.experiences
     ]) if candidate_profile.experiences else "경력 없음"
 
-    # 기술 면접 결과에서 질문/답변 추출
-    skills_evaluated = technical_results.get("skills_evaluated", [])
-    results = technical_results.get("results", {})
+    # 학력 정보 요약
+    education_summary = "\n".join([
+        f"- {edu.school_name}" +
+        (f" / {edu.major}" if edu.major else "") +
+        f" ({edu.status})"
+        for edu in candidate_profile.educations
+    ]) if candidate_profile.educations else "학력 정보 없음"
 
-    technical_qa_summary = ""
-    for skill in skills_evaluated:
-        skill_qa = results.get(skill, [])
-        if skill_qa:
-            technical_qa_summary += f"\n### {skill}\n"
-            for qa in skill_qa:
-                technical_qa_summary += f"Q: {qa.get('question', '')}\n"
-                technical_qa_summary += f"A: {qa.get('answer', '')[:200]}...\n"
+    # 활동 정보 요약
+    activity_summary = "\n".join([
+        f"- {act.name}" +
+        (f" ({act.category})" if act.category else "") +
+        (f": {act.description}" if act.description else "")
+        for act in candidate_profile.activities
+    ]) if candidate_profile.activities else "활동 정보 없음"
+
+    # 자격증 정보 요약
+    certification_summary = "\n".join([
+        f"- {cert.name}" +
+        (f" ({cert.score_or_grade})" if cert.score_or_grade else "")
+        for cert in candidate_profile.certifications
+    ]) if candidate_profile.certifications else "자격증 없음"
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", """당신은 HR 매칭 전문가입니다.
 
 인재의 면접 결과를 바탕으로, 기업과의 매칭을 위한 **6가지 기준별 텍스트**를 생성하세요.
 
-각 텍스트는 해당 기준에서 **인재가 제공할 수 있는 가치와 특성**을 명확히 드러내야 합니다.
+각 텍스트는 해당 기준에서 **인재가 제공할 수 있는 가치와 특성**을 디테일하게 드러내야 합니다.
+
+---
+
+## 텍스트 생성 기본 원칙 (500-700자)
+
+**작성 원칙**:
+1. **자연스러운 흐름**: 억지로 형식을 맞추지 말고, 자연스럽게 핵심 정보를 먼저 배치
+2. **키워드 밀도**: 중요한 키워드(기술명, 직무명, 역량명)는 문맥을 바꿔가며 2-3회 자연스럽게 반복
+3. **구체성**: 추상적 표현보다 구체적인 사례, 수치, 기술명 사용
+4. **희망 조건 반영**: 아래 희망 조건을 각 기준에 맞게 자연스럽게 녹여낼 것
+
+**희망 조건 활용 가이드**:
+- **역할/역량**: 희망 직무를 고려한 역할 및 기술 강조
+- **성장/커리어**: 희망 직무/산업 방향성을 성장 목표로 연결
+- **문화**: 희망 회사규모/근무지를 선호 업무 환경으로 표현
 
 ---
 
@@ -117,8 +150,11 @@ def generate_talent_matching_texts(
 - 담당했던 역할과 책임 범위
 - 성과와 결과물
 
-**예시 형식**:
-"백엔드 개발자로 3년 경력. AI 추천 시스템 API 개발을 주도하여 Redis 캐싱으로 응답 속도 70% 개선. 실시간 채팅 서버 개발에서 WebSocket과 Redis Pub/Sub를 활용해 동시 접속자 5만명 처리 시스템 구축. 성능 최적화와 확장 가능한 아키텍처 설계 경험 보유."
+**작성 가이드**:
+- 직무명, 연차, 핵심 전문 분야를 초반에 명확히 제시
+- 최근 주요 프로젝트 2-3개를 정량적 성과와 함께 서술
+- 핵심 역할 키워드를 문맥을 바꿔 2-3회 자연스럽게 반복
+- 희망 직무와 현재 경험의 연결점 강조
 
 ---
 
@@ -137,8 +173,11 @@ def generate_talent_matching_texts(
 - 강점으로 드러난 능력
 - 실무에서 검증된 역량
 
-**예시 형식**:
-"강점: 성능 최적화 및 확장 가능한 아키텍처 설계 능력, 비동기 처리 및 캐싱 전략. 핵심 일반 역량: 협업 능력(높음), 문제 해결 능력(높음), 커뮤니케이션(높음). 핵심 기술: FastAPI 비동기 처리(높음), PostgreSQL 인덱싱 및 쿼리 최적화(높음), Redis 캐싱(높음)."
+**작성 가이드**:
+- 핵심 기술 스택 3-5개를 초반에 명시하고 문맥을 바꿔 반복
+- 기술 숙련도와 실무 검증 사례를 구체적으로 서술
+- Soft skills를 프로젝트 경험과 연결하여 표현
+- 희망 직무 관련 기술을 강조
 
 ---
 
@@ -157,8 +196,11 @@ def generate_talent_matching_texts(
 - 자기 개발 노력 (블로그, 오픈소스 등)
 - 경력 확장 가능성
 
-**예시 형식**:
-"실습 중심 학습으로 빠른 기술 습득력 보유. 기술 블로그 운영 및 오픈소스 기여를 통한 지속적 성장. 분산 시스템과 MSA 아키텍처에 대한 학습 의지. 성능 최적화 전문성을 기반으로 대규모 시스템 설계로 경력 확장 가능."
+**작성 가이드**:
+- 학습 성향과 방식을 구체적 사례와 함께 제시
+- 자기개발 활동(블로그, 오픈소스 등)을 명시
+- 희망 산업/직무와 연결된 성장 방향 강조
+- 기술 습득 경험을 통해 성장 잠재력 입증
 
 ---
 
@@ -176,8 +218,11 @@ def generate_talent_matching_texts(
 - 관심 분야와 기술
 - 장기 커리어 비전
 
-**예시 형식**:
-"현재 백엔드 개발 3년차로 성능 최적화와 아키텍처 설계 경험 축적. 목표는 시니어 백엔드 엔지니어로 성장하여 대규모 트래픽 처리 시스템 설계. 분산 시스템, MSA 아키텍처, 대용량 데이터 처리 분야에 깊은 관심."
+**작성 가이드**:
+- 현재 경력과 목표 방향을 명확히 제시
+- 희망 직무/산업을 커리어 목표로 자연스럽게 연결
+- 관심 기술 분야와 장기 비전을 구체적으로 서술
+- 목표 키워드(직무명, 산업명)를 2-3회 반복
 
 ---
 
@@ -195,8 +240,11 @@ def generate_talent_matching_texts(
 - 의사결정 참여 방식
 - 갈등 해결 접근법
 
-**예시 형식**:
-"논리적 소통과 데이터 기반 의사결정으로 팀 내 의견 조율에 능숙. 코드 리뷰와 페어 프로그래밍을 선호하며 적극적으로 지식 공유. 의견 충돌 시 근거를 기반으로 합리적 합의 도출. 팀원들과 함께 성장하는 것을 중요하게 생각."
+**작성 가이드**:
+- 협업 스타일과 커뮤니케이션 방식을 구체적 사례로 표현
+- 팀 내 기여 방식과 의사결정 참여 경험 서술
+- 갈등 해결 경험을 통해 협업 역량 입증
+- 협업/기여 관련 키워드를 자연스럽게 반복
 
 ---
 
@@ -214,24 +262,44 @@ def generate_talent_matching_texts(
 - 스트레스 대응 방식 (도전형, 안정형)
 - 커뮤니케이션 스타일 (논리형, 공감형, 간결형)
 
-**예시 형식**:
-"협력적이고 체계적인 업무 스타일. 데이터 기반의 분석적 문제 해결 선호. 도전적인 환경에서 학습과 성장을 추구. 논리적이면서도 공감적인 커뮤니케이션. 애자일 환경과 기술 토론이 활발한 팀 문화에 적합."
+**작성 가이드**:
+- 업무 스타일과 선호 환경을 페르소나 분석 결과와 함께 제시
+- 희망 회사규모/근무지를 선호 업무 환경으로 자연스럽게 표현
+- 문제 해결 방식, 스트레스 대응, 커뮤니케이션 스타일을 구체적으로 서술
+- 성향/가치관 관련 키워드를 반복
 
 ---
 
 **중요 사항**:
-- 각 텍스트는 **50자 이상, 300자 이하**로 작성
+- 각 텍스트는 **500-700자**로 작성
 - 면접에서 드러난 **실제 내용**만 사용, 추측 금지
-- 구체적인 수치, 사례, 키워드 포함
-- 간결하고 명확하게 작성
+- 각 기준별 작성 구조를 따라 핵심 정보를 앞쪽에 집중 배치
 """),
         ("user", f"""
 ## 지원자 기본 정보
 - 이름: {candidate_profile.basic.name if candidate_profile.basic else "지원자"}
+- 한줄소개: {candidate_profile.basic.tagline if candidate_profile.basic and candidate_profile.basic.tagline else "없음"}
 - 총 경력: {sum((exp.duration_years or 0) for exp in candidate_profile.experiences)}년
+
+## 희망 조건
+- 희망 직무: {candidate_profile.basic.desired_role if candidate_profile.basic and candidate_profile.basic.desired_role else "정보 없음"}
+- 희망 연봉: {candidate_profile.basic.desired_salary if candidate_profile.basic and candidate_profile.basic.desired_salary else "정보 없음"}
+- 희망 산업: {candidate_profile.basic.desired_industry if candidate_profile.basic and candidate_profile.basic.desired_industry else "정보 없음"}
+- 희망 회사규모: {candidate_profile.basic.desired_company_size if candidate_profile.basic and candidate_profile.basic.desired_company_size else "정보 없음"}
+- 거주지: {candidate_profile.basic.residence_location if candidate_profile.basic and candidate_profile.basic.residence_location else "정보 없음"}
+- 희망 근무지: {candidate_profile.basic.desired_work_location if candidate_profile.basic and candidate_profile.basic.desired_work_location else "정보 없음"}
 
 ## 경력 사항
 {experience_summary}
+
+## 학력
+{education_summary}
+
+## 활동 (프로젝트, 오픈소스, 동아리 등)
+{activity_summary}
+
+## 자격증
+{certification_summary}
 
 ## 구조화 면접 분석
 - 주요 테마: {", ".join(general_analysis.key_themes)}
@@ -240,8 +308,12 @@ def generate_talent_matching_texts(
 - 업무 스타일: {", ".join(general_analysis.work_style_hints)}
 - 기술 키워드: {", ".join(general_analysis.technical_keywords)}
 
-## 직무 적합성 면접 결과
-{technical_qa_summary}
+## 직무 적합성 면접 분석
+- 평가된 기술: {", ".join(technical_analysis.evaluated_skills)}
+- 강한 영역: {", ".join(technical_analysis.strong_areas)}
+- 사용 도구/프레임워크: {", ".join(technical_analysis.mentioned_tools)}
+- 프로젝트 하이라이트: {", ".join(technical_analysis.project_highlights)}
+- 깊이있게 다룬 영역: {", ".join(technical_analysis.technical_depth)}
 
 ## 상황 면접 페르소나
 - 업무 스타일: {situational_report.work_style}
@@ -277,7 +349,7 @@ def generate_talent_matching_texts(
 def generate_talent_matching_vectors(
     candidate_profile: CandidateProfile,
     general_analysis: GeneralInterviewAnalysis,
-    technical_results: dict,
+    technical_analysis: TechnicalInterviewAnalysis,
     situational_report: FinalPersonaReport
 ) -> dict:
     """
@@ -286,7 +358,7 @@ def generate_talent_matching_vectors(
     Args:
         candidate_profile: 지원자 기본 프로필
         general_analysis: 구조화 면접 분석
-        technical_results: 직무 적합성 면접 결과
+        technical_analysis: 직무 적합성 면접 분석
         situational_report: 상황 면접 페르소나 리포트
 
     Returns:
@@ -310,11 +382,35 @@ def generate_talent_matching_vectors(
     texts = generate_talent_matching_texts(
         candidate_profile=candidate_profile,
         general_analysis=general_analysis,
-        technical_results=technical_results,
+        technical_analysis=technical_analysis,
         situational_report=situational_report
     )
 
-    # 2. 텍스트를 벡터로 임베딩
+    # 2. 생성된 텍스트 출력
+    print("\n" + "="*80)
+    print("📝 생성된 매칭 텍스트")
+    print("="*80)
+    print("\n[1] 역할 적합도/역할 수행력")
+    print("-"*80)
+    print(texts.roles_text)
+    print("\n[2] 역량 적합도")
+    print("-"*80)
+    print(texts.skills_text)
+    print("\n[3] 성장 기회 제공/성장 가능성")
+    print("-"*80)
+    print(texts.growth_text)
+    print("\n[4] 커리어 방향")
+    print("-"*80)
+    print(texts.career_text)
+    print("\n[5] 비전 신뢰도/협업 기여도")
+    print("-"*80)
+    print(texts.vision_text)
+    print("\n[6] 조직/문화 적합도")
+    print("-"*80)
+    print(texts.culture_text)
+    print("="*80 + "\n")
+
+    # 3. 텍스트를 벡터로 임베딩
     vectors = embed_matching_texts(
         roles_text=texts.roles_text,
         skills_text=texts.skills_text,

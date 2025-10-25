@@ -15,6 +15,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from ai.interview.talent.models import (
     CandidateProfile,
     GeneralInterviewAnalysis,
+    TechnicalInterviewAnalysis,
     InterviewQuestion,
     AnswerFeedback,
     TechnicalInterviewCardPart,
@@ -206,6 +207,78 @@ def analyze_answer(
         temperature=0.3,
         api_key=settings.OPENAI_API_KEY
     ).with_structured_output(AnswerFeedback)
+
+    return (prompt | llm).invoke({})
+
+
+def analyze_technical_interview(technical_results: dict) -> TechnicalInterviewAnalysis:
+    """
+    직무 적합성 면접 답변들을 종합 분석 (벡터 생성용)
+
+    Args:
+        technical_results: 직무 면접 결과
+            {
+                "skills_evaluated": List[str],
+                "results": {skill: [{"question": str, "answer": str, "feedback": dict}, ...]},
+                "total_questions": int
+            }
+
+    Returns:
+        TechnicalInterviewAnalysis
+    """
+    skills_evaluated = technical_results.get("skills_evaluated", [])
+    results = technical_results.get("results", {})
+
+    # 모든 Q&A를 하나의 텍스트로 결합
+    all_qa = []
+    for skill, questions in results.items():
+        all_qa.append(f"\n[{skill}]")
+        for q in questions:
+            all_qa.append(f"Q: {q['question']}")
+            all_qa.append(f"A: {q['answer']}")
+            # 피드백도 포함
+            if q.get('feedback'):
+                feedback = q['feedback']
+                if feedback.get('mentioned_technologies'):
+                    all_qa.append(f"언급 기술: {', '.join(feedback['mentioned_technologies'])}")
+
+    all_qa_text = "\n".join(all_qa)
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", """당신은 채용 전문가입니다.
+
+직무 적합성 면접 답변들을 분석하여, 인재-기업 매칭을 위한 핵심 정보를 추출하세요.
+
+**분석 목표:**
+1. 평가된 기술 목록 (면접에서 다룬 기술들)
+2. 강하게 드러난 기술 영역 (깊이있는 이해, 실무 경험 풍부)
+3. 답변에서 언급된 도구/프레임워크
+4. 주요 프로젝트/경험 하이라이트 (구체적 성과, 기억에 남는 경험)
+5. 깊이있게 다룬 기술 영역 (최적화, 트러블슈팅, 아키텍처 설계 등)
+
+**중요:**
+- 실제 답변에 있는 내용만 추출
+- 추측하거나 과장하지 말 것
+- 구체적이고 명확한 키워드만
+- 답변의 깊이와 구체성을 기준으로 판단
+"""),
+        ("user", f"""
+## 평가된 기술
+{', '.join(skills_evaluated)}
+
+## 면접 Q&A
+{all_qa_text}
+
+위 정보를 바탕으로 5가지 항목을 추출하세요.
+""")
+    ])
+
+    settings = get_settings()
+    llm = ChatOpenAI(
+        model="gpt-4o",
+        temperature=0.3,
+        api_key=settings.OPENAI_API_KEY
+    ).with_structured_output(TechnicalInterviewAnalysis)
 
     return (prompt | llm).invoke({})
 

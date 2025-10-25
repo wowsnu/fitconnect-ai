@@ -44,6 +44,40 @@ class GeneralInterviewAnalysis(BaseModel):
 
 # ==================== Technical Interview ====================
 
+class TechnicalInterviewAnalysis(BaseModel):
+    """직무 적합성 면접 답변 종합 분석 결과"""
+
+    evaluated_skills: List[str] = Field(
+        description="평가된 기술 목록",
+        max_length=10,
+        default_factory=list,
+    )
+
+    strong_areas: List[str] = Field(
+        description="강하게 드러난 기술 영역",
+        max_length=10,
+        default_factory=list,
+    )
+
+    mentioned_tools: List[str] = Field(
+        description="답변에서 언급된 도구/프레임워크",
+        max_length=10,
+        default_factory=list,
+    )
+
+    project_highlights: List[str] = Field(
+        description="주요 프로젝트/경험 하이라이트",
+        max_length=10,
+        default_factory=list,
+    )
+
+    technical_depth: List[str] = Field(
+        description="깊이있게 다룬 기술 영역 (최적화, 트러블슈팅 등)",
+        max_length=10,
+        default_factory=list,
+    )
+
+
 class TalentBasic(BaseModel):
     """인재 기본 정보"""
     user_id: int
@@ -55,6 +89,14 @@ class TalentBasic(BaseModel):
     is_submitted: bool
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+
+    # 희망 조건
+    desired_role: Optional[str] = None
+    desired_salary: Optional[str] = None
+    desired_industry: Optional[str] = None
+    desired_company_size: Optional[str] = None
+    residence_location: Optional[str] = None
+    desired_work_location: Optional[str] = None
 
 
 class Experience(BaseModel):

@@ -1,19 +1,19 @@
 # Python
-  __pycache__/
-  *.pyc
-  .venv/
-  venv/
-  .env
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
 
-  # macOS
-  .DS_Store
+# macOS
+.DS_Store
 
-  # Editors
-  .vscode/
-  .idea/
+# Editors
+.vscode/
+.idea/
 
-  # Docker
-  *.log
-  test_*.py
-  logs/
-  data/
+# Docker
+*.log
+test_*.py
+logs/ 
+data/

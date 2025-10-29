@@ -1,0 +1,25 @@
+# AI Service Dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+pydantic>=2.7.4,<3.0.0
+pydantic-settings>=2.1.0
+
+# AI and ML dependencies
+openai>=1.54.0,<2.0.0
+sentence-transformers==3.2.1
+torch==2.8.0
+transformers==4.46.3
+git+https://github.com/openai/whisper.git
+
+# LangChain (for AI Interview System)
+langchain>=0.3.7
+langchain-openai>=0.2.9
+langchain-core>=0.3.17
+langgraph>=0.2.45
+
+# Utilities
+python-dotenv==1.0.0
+aiofiles==23.2.1
+httpx==0.25.2
+numpy>=1.26.0

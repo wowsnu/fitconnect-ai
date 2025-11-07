@@ -30,37 +30,31 @@ class CompanyMatchingTexts(BaseModel):
 
     roles_text: str = Field(
         description="역할 제공/역할 요구사항 텍스트",
-        min_length=500,
         max_length=700
     )
 
     skills_text: str = Field(
         description="역량 요구사항 텍스트",
-        min_length=500,
         max_length=700
     )
 
     growth_text: str = Field(
         description="성장 기회 제공 텍스트",
-        min_length=500,
         max_length=700
     )
 
     career_text: str = Field(
         description="커리어 방향 텍스트",
-        min_length=500,
         max_length=700
     )
 
     vision_text: str = Field(
         description="비전/협업 환경 텍스트",
-        min_length=500,
         max_length=700
     )
 
     culture_text: str = Field(
         description="조직/문화 텍스트",
-        min_length=500,
         max_length=700
     )
 

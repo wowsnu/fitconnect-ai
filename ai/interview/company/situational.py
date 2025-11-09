@@ -130,16 +130,32 @@ class CompanySituationalInterview:
 
     def _generate_dynamic_questions(self):
         """실시간 추천 질문 생성 (정확히 3개)"""
+        settings = get_settings()
+
         # 고정 질문 답변만 사용
         fixed_answers = [a for a in self.answers if a["type"] == "fixed"]
 
-        all_qa = "\n\n".join([
-            f"질문: {a['question']}\n답변: {a['answer']}"
-            for a in fixed_answers
-        ])
+        # LangGraph 사용 여부에 따라 분기
+        if settings.USE_LANGGRAPH_FOR_QUESTIONS:
+            # LangGraph 버전 (Generator → Validator → Conditional Edge)
+            from ai.interview.company.situational_graph import generate_situational_dynamic_questions
 
-        # 이전 단계 분석 결과 요약
-        context = f"""
+            questions = generate_situational_dynamic_questions(
+                general_analysis=self.general_analysis,
+                technical_requirements=self.technical_requirements,
+                fixed_answers=fixed_answers,
+                company_info=self.company_info
+            )
+            self.dynamic_questions = questions
+        else:
+            # 기존 LangChain 버전
+            all_qa = "\n\n".join([
+                f"질문: {a['question']}\n답변: {a['answer']}"
+                for a in fixed_answers
+            ])
+
+            # 이전 단계 분석 결과 요약
+            context = f"""
 [General 면접 분석 결과]
 - 핵심 가치: {', '.join(self.general_analysis.core_values)}
 - 이상적 인재: {', '.join(self.general_analysis.ideal_candidate_traits)}
@@ -151,52 +167,51 @@ class CompanySituationalInterview:
 - 예상 도전: {self.technical_requirements.expected_challenges}
 """
 
-        # 기업 정보 추가
-        company_context = ""
-        if self.company_info:
-            company_parts = []
-            if self.company_info.get("culture"):
-                company_parts.append(f"- 조직 문화: {self.company_info['culture']}")
-            if self.company_info.get("vision_mission"):
-                company_parts.append(f"- 비전/미션: {self.company_info['vision_mission']}")
+            # 기업 정보 추가
+            company_context = ""
+            if self.company_info:
+                company_parts = []
+                if self.company_info.get("culture"):
+                    company_parts.append(f"- 조직 문화: {self.company_info['culture']}")
+                if self.company_info.get("vision_mission"):
+                    company_parts.append(f"- 비전/미션: {self.company_info['vision_mission']}")
 
-            if company_parts:
-                company_context = "\n[기업 정보]\n" + "\n".join(company_parts) + "\n"
+                if company_parts:
+                    company_context = "\n[기업 정보]\n" + "\n".join(company_parts) + "\n"
 
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", """당신은 인사팀 채용 담당자로, 공고(포지션)에 대한 정보를 자세히 파악하고자 실무진 부서와 인터뷰 중입니다.
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", """당신은 인사팀 채용 담당자로, 공고(포지션)에 대한 정보를 자세히 파악하고자 실무진 부서와 인터뷰 중입니다.
 
-            질문과 답변 내용을 분석하여, Culture Fit(팀 핏)을 구체화할 수 있는 follow-up 질문을 정확히 3개 생성하세요.
+질문과 답변 내용을 분석하여, Culture Fit(팀 핏)을 구체화할 수 있는 follow-up 질문을 정확히 3개 생성하세요.
 
-            **목표:**
-            - **해당 팀**을 위한 질문으로, 팀 문화 이해를 위해 실무진에게 던지는 질문
-            - 답변에서 언급된 팀 특성을 더 구체화
-            - 적합한 인재상을 명확히 정의
-            - General/Technical 결과와 일관성 확인
+**목표:**
+- **해당 팀**을 위한 질문으로, 팀 문화 이해를 위해 실무진에게 던지는 질문
+- 답변에서 언급된 팀 특성을 더 구체화
+- 적합한 인재상을 명확히 정의
+- General/Technical 결과와 일관성 확인
 
-            **질문 예시:**
-            - "팀에서 주도적으로 아이디어를 제안하고 실행하는 문화가 있나요?"
-            - "팀이 추구하는 가치나 행동 기준은 무엇이며, 후보자에게 요구되는 성향은 무엇인가요?"
-            - "팀은 수직적인 보고 구조인가요, 아니면 수평적인 협업 구조인가요?"
+**질문 예시:**
+- "팀에서 주도적으로 아이디어를 제안하고 실행하는 문화가 있나요?"
+- "팀이 추구하는 가치나 행동 기준은 무엇이며, 후보자에게 요구되는 성향은 무엇인가요?"
+- "팀은 수직적인 보고 구조인가요, 아니면 수평적인 협업 구조인가요?"
 
-            **중요:**
-            - 모든 질문을 한글로만 작성하세요 (영어 질문 금지)
-            - 실제 답변 내용을 바탕으로 질문 생성
-            - 팀 문화와 직무 특성을 연결하여 질문
-            - 정확히 3개의 질문만 생성 (2개도 4개도 아닌 3개)
-             """),
-            ("user", f"{context}{company_context}\n[Situational 고정 질문 답변]\n{all_qa}")
-        ])
+**중요:**
+- 모든 질문을 한글로만 작성하세요 (영어 질문 금지)
+- 실제 답변 내용을 바탕으로 질문 생성
+- 팀 문화와 직무 특성을 연결하여 질문
+- 정확히 3개의 질문만 생성
+"""),
+                ("user", f"{context}{company_context}\n[Situational 고정 질문 답변]\n{all_qa}")
+            ])
 
-        settings = get_settings()
-        llm = ChatOpenAI(
-            model="gpt-4o",
-            temperature=0.5,
-            api_key=settings.OPENAI_API_KEY
-        ).with_structured_output(RecommendedQuestions)
+            llm = ChatOpenAI(
+                model="gpt-4.1-mini",
+                temperature=0.5,
+                api_key=settings.OPENAI_API_KEY
+            ).with_structured_output(RecommendedQuestions)
 
-        result = (prompt | llm).invoke({})
-        self.dynamic_questions = result.questions
+            result = (prompt | llm).invoke({})
+            self.dynamic_questions = result.questions
 
     def is_finished(self) -> bool:
         """모든 질문 완료 여부"""
@@ -249,8 +264,8 @@ def analyze_company_situational_interview(
         1. **team_situation**: 팀 현황 (성장기, 안정기 등) - 2-3문장
         2. **collaboration_style**: 선호하는 협업 스타일 - 2-3문장
         3. **conflict_resolution**: 갈등 해결 방식 - 2-3문장
-        4. **work_environment**: 업무 환경 특성 (변화 vs 안정) - 2-3문장
-        5. **preferred_work_style**: 선호하는 업무 스타일 (독립 vs 협업) - 2-3문장
+        4. **work_environment**: 업무 환경 특성 - 2-3문장
+        5. **preferred_work_style**: 선호하는 업무 스타일 - 2-3문장
 
         **중요:**
         - 실제 답변에 있는 내용만 추출
@@ -263,7 +278,7 @@ def analyze_company_situational_interview(
 
     settings = get_settings()
     llm = ChatOpenAI(
-        model="gpt-4o",
+        model="gpt-4.1-mini",
         temperature=0.3,
         api_key=settings.OPENAI_API_KEY
     ).with_structured_output(TeamCultureProfile)

@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
 
+    # LangGraph Settings
+    USE_LANGGRAPH_FOR_QUESTIONS: bool = True  # True: LangGraph, False: 기존 LangChain
+
     # STT Settings
     WHISPER_MODEL: str = "base"
 

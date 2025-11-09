@@ -1,0 +1,299 @@
+"""
+LangGraph 기반 Technical 동적 질문 생성
+기존 _generate_dynamic_questions 로직을 LangGraph로 전환
+"""
+
+from typing import List, TypedDict, Literal
+from langgraph.graph import StateGraph, END
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+
+from ai.interview.company.models import (
+    CompanyGeneralAnalysis,
+    RecommendedQuestions,
+    CompanyInterviewQuestion
+)
+from config.settings import get_settings
+
+
+# ==================== State 정의 ====================
+
+class TechnicalQuestionState(TypedDict):
+    """Technical 동적 질문 생성 State"""
+    # Input - 기존 _generate_dynamic_questions에서 사용하던 모든 컨텍스트
+    general_analysis: CompanyGeneralAnalysis
+    fixed_answers: List[dict]  # [{"question": str, "answer": str, "type": str}]
+    company_info: dict  # {culture, vision_mission, business_domains}
+    existing_jd: str  # 기존 Job Description
+
+    # Process
+    generated_questions: List[CompanyInterviewQuestion]
+    validation_errors: List[str]
+    attempts: int
+
+    # Output
+    final_questions: List[CompanyInterviewQuestion]
+    is_valid: bool
+
+
+# ==================== Generator Node ====================
+
+def generate_technical_questions_node(state: TechnicalQuestionState) -> TechnicalQuestionState:
+    """
+    Technical 질문 생성 노드
+
+    기존 technical.py의 _generate_dynamic_questions 로직을 그대로 사용
+    """
+    print(f"[Generator] Generating Technical questions (attempt {state['attempts'] + 1})")
+
+    general_analysis = state["general_analysis"]
+    fixed_answers = state["fixed_answers"]
+    company_info = state["company_info"]
+    existing_jd = state["existing_jd"]
+
+    # 1. 고정 질문 답변 포맷팅
+    all_qa = "\n\n".join([
+        f"질문: {a['question']}\n답변: {a['answer']}"
+        for a in fixed_answers
+    ])
+
+    # 2. General 분석 결과 요약
+    general_summary = f"""
+[General 면접 분석 결과]
+- 핵심 가치: {', '.join(general_analysis.core_values)}
+- 이상적 인재: {', '.join(general_analysis.ideal_candidate_traits)}
+- 팀 문화: {general_analysis.team_culture}
+- 업무 방식: {general_analysis.work_style}
+"""
+
+    # 3. 기업 정보 추가
+    company_context = ""
+    if company_info:
+        company_parts = []
+        if company_info.get("culture"):
+            company_parts.append(f"- 조직 문화: {company_info['culture']}")
+        if company_info.get("vision_mission"):
+            company_parts.append(f"- 비전/미션: {company_info['vision_mission']}")
+        if company_info.get("business_domains"):
+            company_parts.append(f"- 사업 영역: {company_info['business_domains']}")
+
+        if company_parts:
+            company_context = "\n[기업 정보]\n" + "\n".join(company_parts) + "\n"
+
+    # 4. 기존 JD가 있으면 추가
+    jd_context = ""
+    if existing_jd:
+        jd_context = f"\n[기존 Job Description]\n{existing_jd}\n"
+
+    # 5. 프롬프트 구성 (기존과 동일)
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", """당신은 인사팀 채용 담당자로, 공고(포지션)에 대한 정보를 자세히 파악하고자 실무진 부서와 인터뷰 중입니다.
+
+질문과 답변 내용을 분석하여, 더 구체적으로 파고들고 포지션/인재상에 대한 이해를 높일 수 있는 follow-up 질문을 정확히 3개 생성하세요.
+
+**목표:**
+- **해당 직무, 포지션**에 특화된 질문으로, 채용 공고 내용을 더 명확히 하고자 실무진에게 던지는 질문
+- 답변이 모호하거나 추상적인 부분을 더 구체적으로 질문
+- 필수 역량의 수준을 더 자세히 파악하기 위한 질문
+- 업무 범위와 역할, 기대 성과를 더 명확히 정의하는 질문
+
+**질문 예시:**
+- "방금 언급하신 핵심 역량을 평가하기 위해 어떤 기준이나 방법을 사용하시겠습니까?"
+- "언급하신 기대 역할을 이루기 위해 어떤 팀과 협업하게 되나요?"
+- "언급하신 주요 어려움/도전 과제를 해결하려면 이 포지션에게 어떤 지원이 필요하나요?"
+
+**중요:**
+- 모든 질문을 한글로만 작성 (영어 질문 금지)
+- 실제 답변 내용을 바탕으로 질문 생성
+- 정확히 3개의 질문만 생성
+- 열린 질문 (지원자가 실제 경험을 말할 수 있도록 유도, 실무 중심의 구체적인 질문)
+- 사실 기반 질문 (프로필과 인터뷰 답변에 있는 내용만 사용하여 적절한 질문 생성, 제시되지 않은 경험을 만들어서 물어보지 말 것)
+- 추정 및 과장 금지 (언급되지 않은 내용을 만들어내지 말 것)
+- 유사 질문 금지 (의미없이 비슷한 질문을 하는 것은 지양)
+- 추가 질문일 경우 이전 답변에서 언급된 내용을 바탕으로 더 구체적이고 깊이 있는 후속 질문을 생성
+
+"""),
+        ("user", f"{general_summary}\n{company_context}{jd_context}\n[Technical 고정 질문 답변]\n{all_qa}")
+    ])
+
+    # 6. LLM 호출
+    settings = get_settings()
+    llm = ChatOpenAI(
+        model="gpt-4.1-mini",
+        temperature=0.5,
+        api_key=settings.OPENAI_API_KEY
+    ).with_structured_output(RecommendedQuestions)
+
+    result = (prompt | llm).invoke({})
+
+    # 7. State 업데이트
+    state["generated_questions"] = result.questions
+    state["attempts"] += 1
+
+    print(f"[Generator] Generated {len(result.questions)} questions")
+
+    return state
+
+
+# ==================== Validator Node ====================
+
+def validate_technical_questions_node(state: TechnicalQuestionState) -> TechnicalQuestionState:
+    """
+    Technical 질문 검증 노드
+
+    검증 항목:
+    1. 질문 개수 (정확히 3개)
+    2. 질문 내용 (비어있지 않은지)
+    3. 한글 질문인지 (영어 필터링)
+    4. 중복 질문 체크
+    """
+    print(f"[Validator] Validating {len(state['generated_questions'])} questions")
+
+    generated_questions = state["generated_questions"]
+    errors = []
+
+    # 1. 질문 개수 검증
+    if len(generated_questions) != 3:
+        errors.append(f"Expected 3 questions, got {len(generated_questions)}")
+
+    # 2. 질문 내용 검증
+    for idx, q in enumerate(generated_questions, 1):
+        # 비어있는 질문
+        if not q.question or len(q.question.strip()) < 10:
+            errors.append(f"Question {idx} is too short or empty")
+
+        # 영어 질문 체크 (간단한 휴리스틱)
+        english_chars = sum(1 for c in q.question if 'a' <= c.lower() <= 'z')
+        korean_chars = sum(1 for c in q.question if '가' <= c <= '힣')
+        if english_chars > korean_chars:
+            errors.append(f"Question {idx} appears to be in English: {q.question[:50]}")
+
+    # 3. 중복 질문 검증
+    questions_text = [q.question.strip().lower() for q in generated_questions]
+    unique_questions = set(questions_text)
+    if len(unique_questions) < len(questions_text):
+        errors.append("Duplicate questions detected")
+
+    # State 업데이트
+    state["validation_errors"] = errors
+    state["is_valid"] = len(errors) == 0
+
+    if state["is_valid"]:
+        print("[Validator] ✅ Validation passed")
+        state["final_questions"] = generated_questions
+    else:
+        print(f"[Validator] ❌ Validation failed: {errors}")
+
+    return state
+
+
+# ==================== Decision Logic ====================
+
+def should_regenerate_technical(state: TechnicalQuestionState) -> Literal["regenerate", "finish"]:
+    """
+    재생성 여부 결정
+
+    - 검증 통과: finish
+    - 검증 실패 + 최대 시도 횟수 미만: regenerate
+    - 검증 실패 + 최대 시도 횟수 도달: finish (현재 질문 사용)
+    """
+    max_attempts = 3
+
+    if state["is_valid"]:
+        print("[Decision] Questions are valid. Finishing.")
+        return "finish"
+
+    if state["attempts"] >= max_attempts:
+        print(f"[Decision] Max attempts ({max_attempts}) reached. Using current questions anyway.")
+        # 최대 시도 횟수 도달 시 현재 질문으로 진행
+        state["final_questions"] = state["generated_questions"]
+        return "finish"
+
+    print(f"[Decision] Invalid. Regenerating... (attempt {state['attempts']}/{max_attempts})")
+    return "regenerate"
+
+
+# ==================== Graph 구축 ====================
+
+def create_technical_question_graph() -> StateGraph:
+    """
+    Technical 동적 질문 생성 Graph
+
+    Flow:
+    START → generator → validator → [decision] → (regenerate → generator) or (finish → END)
+    """
+    workflow = StateGraph(TechnicalQuestionState)
+
+    # 노드 추가
+    workflow.add_node("generator", generate_technical_questions_node)
+    workflow.add_node("validator", validate_technical_questions_node)
+
+    # Edge 추가
+    workflow.set_entry_point("generator")
+    workflow.add_edge("generator", "validator")
+
+    # Conditional Edge: validator 후 재생성 또는 종료
+    workflow.add_conditional_edges(
+        "validator",
+        should_regenerate_technical,
+        {
+            "regenerate": "generator",  # 재생성
+            "finish": END  # 종료
+        }
+    )
+
+    return workflow.compile()
+
+
+# ==================== Public API ====================
+
+def generate_technical_dynamic_questions(
+    general_analysis: CompanyGeneralAnalysis,
+    fixed_answers: List[dict],
+    company_info: dict = None,
+    existing_jd: str = None
+) -> List[CompanyInterviewQuestion]:
+    """
+    Technical 동적 질문 생성 (LangGraph 기반)
+
+    기존 CompanyTechnicalInterview._generate_dynamic_questions()를
+    대체하는 함수
+
+    Args:
+        general_analysis: General 면접 분석 결과
+        fixed_answers: 고정 질문 답변 리스트 [{"question": str, "answer": str, "type": "fixed"}]
+        company_info: 기업 정보 dict (culture, vision_mission, business_domains)
+        existing_jd: 기존 Job Description 텍스트
+
+    Returns:
+        생성된 질문 목록 (3개)
+    """
+    print(f"\n{'='*60}")
+    print(f"Technical Dynamic Question Generation (LangGraph)")
+    print(f"{'='*60}\n")
+
+    # 초기 State
+    initial_state: TechnicalQuestionState = {
+        "general_analysis": general_analysis,
+        "fixed_answers": fixed_answers,
+        "company_info": company_info or {},
+        "existing_jd": existing_jd or "",
+        "generated_questions": [],
+        "validation_errors": [],
+        "attempts": 0,
+        "final_questions": [],
+        "is_valid": False
+    }
+
+    # Graph 실행
+    graph = create_technical_question_graph()
+    final_state = graph.invoke(initial_state)
+
+    print(f"\n{'='*60}")
+    print(f"✅ Generation Complete!")
+    print(f"Attempts: {final_state['attempts']}")
+    print(f"Final Questions: {len(final_state['final_questions'])}")
+    print(f"Valid: {final_state['is_valid']}")
+    print(f"{'='*60}\n")
+
+    return final_state["final_questions"]

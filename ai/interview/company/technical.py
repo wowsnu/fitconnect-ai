@@ -69,8 +69,8 @@ def format_job_posting_to_jd(job_posting: dict) -> str:
 # Technical 고정 질문 (5개)
 COMPANY_TECHNICAL_QUESTIONS = [
     "필수로 갖춰야 하는 역량과 해당 경험의 수준은 어느 정도인가요?",
-    "이 포지션에서 후보자가 입사 후 가장 크게 기여할 수 있는 영역이나 기대 역할은 무엇인가요?",
-    "이 포지션과 팀의 핵심 KPI나 목표는 무엇인가요? 후보자가 달성해야 할 주요 성과 지표를 알려주세요.",
+    "팀 내에서 가장 중요하게 생각하는 역량은 무엇인가요?",
+    "이 포지션에서 후보자가 입사 후 기여할 수 있는 영역이나 기대 역할은 무엇인가요?",
     "이 포지션에서 뛰어난 성과를 낸 직원은 어떤 특징을 가지고 있었나요? (새롭게 만들어진 포지션이라면, 해당 포지션이 만들어진 이유를 알려주세요.)",
     "이 포지션에서 예상되는 어려움이나 도전 과제는 무엇인가요?"
 ]
@@ -176,16 +176,32 @@ class CompanyTechnicalInterview:
 
     def _generate_dynamic_questions(self):
         """실시간 추천 질문 생성 (정확히 3개)"""
+        settings = get_settings()
+
         # 고정 질문 답변만 사용
         fixed_answers = [a for a in self.answers if a["type"] == "fixed"]
 
-        all_qa = "\n\n".join([
-            f"질문: {a['question']}\n답변: {a['answer']}"
-            for a in fixed_answers
-        ])
+        # LangGraph 사용 여부에 따라 분기
+        if settings.USE_LANGGRAPH_FOR_QUESTIONS:
+            # LangGraph 버전 (Generator → Validator → Conditional Edge)
+            from ai.interview.company.technical_graph import generate_technical_dynamic_questions
 
-        # General 분석 결과 요약
-        general_summary = f"""
+            questions = generate_technical_dynamic_questions(
+                general_analysis=self.general_analysis,
+                fixed_answers=fixed_answers,
+                company_info=self.company_info,
+                existing_jd=self.existing_jd
+            )
+            self.dynamic_questions = questions
+        else:
+            # 기존 LangChain 버전
+            all_qa = "\n\n".join([
+                f"질문: {a['question']}\n답변: {a['answer']}"
+                for a in fixed_answers
+            ])
+
+            # General 분석 결과 요약
+            general_summary = f"""
 [General 면접 분석 결과]
 - 핵심 가치: {', '.join(self.general_analysis.core_values)}
 - 이상적 인재: {', '.join(self.general_analysis.ideal_candidate_traits)}
@@ -193,59 +209,63 @@ class CompanyTechnicalInterview:
 - 업무 방식: {self.general_analysis.work_style}
 """
 
-        # 기업 정보 추가
-        company_context = ""
-        if self.company_info:
-            company_parts = []
-            if self.company_info.get("culture"):
-                company_parts.append(f"- 조직 문화: {self.company_info['culture']}")
-            if self.company_info.get("vision_mission"):
-                company_parts.append(f"- 비전/미션: {self.company_info['vision_mission']}")
-            if self.company_info.get("business_domains"):
-                company_parts.append(f"- 사업 영역: {self.company_info['business_domains']}")
+            # 기업 정보 추가
+            company_context = ""
+            if self.company_info:
+                company_parts = []
+                if self.company_info.get("culture"):
+                    company_parts.append(f"- 조직 문화: {self.company_info['culture']}")
+                if self.company_info.get("vision_mission"):
+                    company_parts.append(f"- 비전/미션: {self.company_info['vision_mission']}")
+                if self.company_info.get("business_domains"):
+                    company_parts.append(f"- 사업 영역: {self.company_info['business_domains']}")
 
-            if company_parts:
-                company_context = "\n[기업 정보]\n" + "\n".join(company_parts) + "\n"
+                if company_parts:
+                    company_context = "\n[기업 정보]\n" + "\n".join(company_parts) + "\n"
 
-        # 기존 JD가 있으면 추가
-        jd_context = ""
-        if self.existing_jd:
-            jd_context = f"\n[기존 Job Description]\n{self.existing_jd}\n"
+            # 기존 JD가 있으면 추가
+            jd_context = ""
+            if self.existing_jd:
+                jd_context = f"\n[기존 Job Description]\n{self.existing_jd}\n"
 
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", """당신은 인사팀 채용 담당자로, 공고(포지션)에 대한 정보를 자세히 파악하고자 실무진 부서와 인터뷰 중입니다.
+            prompt = ChatPromptTemplate.from_messages([
+                ("system", """당신은 인사팀 채용 담당자로, 공고(포지션)에 대한 정보를 자세히 파악하고자 실무진 부서와 인터뷰 중입니다.
 
-            질문과 답변 내용을 분석하여, 더 구체적으로 파고들고 포지션/인재상에 대한 이해를 높일 수 있는 follow-up 질문을 정확히 3개 생성하세요.
+질문과 답변 내용을 분석하여, 더 구체적으로 파고들고 포지션/인재상에 대한 이해를 높일 수 있는 follow-up 질문을 정확히 3개 생성하세요.
 
-            **목표:**
-            - **해당 직무, 포지션**에 특화된 질문으로, 채용 공고 내용을 더 명확히 하고자 실무진에게 던지는 질문
-            - 답변이 모호하거나 추상적인 부분을 더 구체적으로 질문
-            - 필수 역량의 수준을 더 자세히 파악하기 위한 질문
-            - 업무 범위와 역할, 기대 성과를 더 명확히 정의하는 질문
+**목표:**
+- **해당 직무, 포지션**에 특화된 질문으로, 채용 공고 내용을 더 명확히 하고자 실무진에게 던지는 질문
+- 답변이 모호하거나 추상적인 부분을 더 구체적으로 질문
+- 필수 역량의 수준을 더 자세히 파악하기 위한 질문
+- 업무 범위와 역할, 기대 성과를 더 명확히 정의하는 질문
 
-            **질문 예시:**
-            - "포지션에서 React에 대한 이해를 요구하는데, 어느 정도 수준까지 다룰 수 있어야 하나요?"
-            - "후보자가 주도적으로 개선할 수 있는 마케팅/영업 프로세스는 무엇인가요?"
-            - "팀에서는 개발 성과를 평가할 때 어떤 지표나 산출물을 가장 중요하게 보나요?"
+**질문 예시:**
+- "방금 언급하신 핵심 역량을 평가하기 위해 어떤 기준이나 방법을 사용하시겠습니까?"
+- "언급하신 기대 역할을 이루기 위해 어떤 팀과 협업하게 되나요?"
+- "언급하신 주요 어려움/도전 과제를 해결하려면 이 포지션에게 어떤 지원이 필요하나요?"
 
-            **중요:**
-            - 모든 질문을 한글로만 작성 (영어 질문 금지)
-            - 실제 답변 내용을 바탕으로 질문 생성
-            - 추측하지 말고, 명확히 할 필요가 있는 부분만 질문
-            - 정확히 3개의 질문만 생성 (2개도 4개도 아닌 3개)
-            """),
-            ("user", f"{general_summary}\n{company_context}{jd_context}\n[Technical 고정 질문 답변]\n{all_qa}")
-        ])
+**중요:**
+- 모든 질문을 한글로만 작성 (영어 질문 금지)
+- 실제 답변 내용을 바탕으로 질문 생성
+- 정확히 3개의 질문만 생성
+- 열린 질문 (지원자가 실제 경험을 말할 수 있도록 유도, 실무 중심의 구체적인 질문)
+- 사실 기반 질문 (프로필과 인터뷰 답변에 있는 내용만 사용하여 적절한 질문 생성, 제시되지 않은 경험을 만들어서 물어보지 말 것)
+- 추정 및 과장 금지 (언급되지 않은 내용을 만들어내지 말 것)
+- 유사 질문 금지 (의미없이 비슷한 질문을 하는 것은 지양)
+- 추가 질문일 경우 이전 답변에서 언급된 내용을 바탕으로 더 구체적이고 깊이 있는 후속 질문을 생성
 
-        settings = get_settings()
-        llm = ChatOpenAI(
-            model="gpt-4o",
-            temperature=0.5,
-            api_key=settings.OPENAI_API_KEY
-        ).with_structured_output(RecommendedQuestions)
+"""),
+                ("user", f"{general_summary}\n{company_context}{jd_context}\n[Technical 고정 질문 답변]\n{all_qa}")
+            ])
 
-        result = (prompt | llm).invoke({})
-        self.dynamic_questions = result.questions
+            llm = ChatOpenAI(
+                model="gpt-4.1-mini",
+                temperature=0.5,
+                api_key=settings.OPENAI_API_KEY
+            ).with_structured_output(RecommendedQuestions)
+
+            result = (prompt | llm).invoke({})
+            self.dynamic_questions = result.questions
 
     def is_finished(self) -> bool:
         """모든 질문 완료 여부"""
@@ -297,7 +317,7 @@ def analyze_company_technical_interview(
 
         **중요:**
         - 실제 답변에 있는 내용만 추출
-        - main_responsibilities, required_skills, preferred_skills는 
+        - required_skills, preferred_skills는 구분되어야 함
         - 구체적이고 명확한 표현 사용
         - General 면접 결과와 일관성 유지
 
@@ -307,7 +327,7 @@ def analyze_company_technical_interview(
 
     settings = get_settings()
     llm = ChatOpenAI(
-        model="gpt-4o",
+        model="gpt-4.1-mini",
         temperature=0.3,
         api_key=settings.OPENAI_API_KEY
     ).with_structured_output(TechnicalRequirements)

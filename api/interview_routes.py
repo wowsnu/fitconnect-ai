@@ -954,13 +954,22 @@ async def generate_matching_vectors(request: GenerateMatchingVectorsRequest):
         situational_report=situational_report
     )
 
-    # 백엔드에 매칭 벡터 POST
+    # 백엔드에 매칭 벡터 + 텍스트 POST
     backend_client = get_backend_client()
     try:
+        from ai.matching.format_converter import convert_to_backend_format
+        
+        # AI 서버 형식 → 백엔드 API 형식 변환
+        vectors_with_texts = convert_to_backend_format(
+            vectors=result["vectors"],
+            texts=result["texts"]
+        )
+        
         backend_response = await backend_client.post_matching_vectors(
-            vectors_data=result["vectors"],
+            vectors_data=vectors_with_texts,
             access_token=request.access_token,
-            role="talent"  # talent는 job_posting_id 없이 전송
+            role="talent",  # talent는 job_posting_id 없이 전송
+            job_posting_id=None
         )
     except Exception as e:
         print(f"[ERROR] Failed to post matching vectors: {str(e)}")

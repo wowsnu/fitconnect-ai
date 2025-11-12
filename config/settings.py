@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     ]
 
     # Backend API URL (for calling main backend from AI service)
-    BACKEND_API_URL: str = "https://fit-back.duckdns.org:8000"
+    BACKEND_API_URL: str = "http://52.91.24.1:8000"
 
     @field_validator('BACKEND_CORS_ORIGINS', mode='before')
     @classmethod

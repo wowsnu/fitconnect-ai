@@ -44,11 +44,11 @@ class Settings(BaseSettings):
         "http://localhost:5173",
         "http://54.89.71.175:8000",
         "https://fitconnect-frontend.vercel.app",
-        "https://fit-back.duckdns.org",
+        "https://fit-back.duckdns.org:8000",
     ]
 
     # Backend API URL (for calling main backend from AI service)
-    BACKEND_API_URL: str = "https://fit-back.duckdns.org"
+    BACKEND_API_URL: str = "https://fit-back.duckdns.org:8000"
 
     @field_validator('BACKEND_CORS_ORIGINS', mode='before')
     @classmethod

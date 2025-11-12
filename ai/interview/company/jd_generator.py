@@ -115,7 +115,7 @@ def create_job_posting_from_interview(
 
     settings = get_settings()
     llm = ChatOpenAI(
-        model="gpt-4o",
+        model="gpt-4.1-mini",
         temperature=0.3,
         api_key=settings.OPENAI_API_KEY
     ).with_structured_output(JobPostingData)
@@ -272,7 +272,7 @@ def create_job_posting_card_from_interview(
 
     settings = get_settings()
     llm = ChatOpenAI(
-        model="gpt-4o",
+        model="gpt-4.1-mini",
         temperature=0.4,
         api_key=settings.OPENAI_API_KEY
     ).with_structured_output(JobPostingCardData)

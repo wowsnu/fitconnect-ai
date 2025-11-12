@@ -19,7 +19,7 @@ COMPANY_GENERAL_QUESTIONS = [
     "이 포지션에서 수행할 주요 업무는 무엇인가요?",
     "이번 채용에서 가장 중요하게 생각하는 인재상은 무엇인가요?",
     "이번 채용을 통해 해결하고자 하는 구체적인 문제나 프로젝트 과제는 무엇인가요?",
-    "이 포지션과 팀의 핵심 KPI나 목표는 무엇인가요? 후보자가 달성해야 할 주요 성과 지표를 알려주세요.",
+    "기존 팀에서 부족한 역량이나 기술 스택이 있다면 무엇인가요?",
     "우리 팀/회사의 핵심 가치와 문화는 무엇인가요? 일하는 방식과 의사결정 방식을 포함해주세요.",
 ]
 
@@ -95,11 +95,11 @@ def analyze_company_general_interview(answers: List[dict]) -> CompanyGeneralAnal
         기업 실무진들의 면접 답변을 분석하여, 해당 포지션의 인재상과 팀 문화를 파악하세요.
 
         **분석 목표:**
-        1. **core_values**: 회사/팀의 핵심 가치 (최대 5개)
-        2. **ideal_candidate_traits**: 이상적인 인재 특징 (3-5가지)
-        3. **team_culture**: 팀 문화 설명 (간결하게 2-3문장)
-        4. **work_style**: 팀의 업무 방식 (간결하게 2-3문장)
-        5. **hiring_reason**: 채용 이유/목적 (간결하게 2-3문장)
+        1. **core_values**: 회사/팀의 핵심 가치 (최대 5개, 구체적으로 서술)
+        2. **ideal_candidate_traits**: 이상적인 인재 특징 (3-5가지, 구체적으로 서술)
+        3. **team_culture**: 팀 문화 설명 (2-3문장, 구체적으로 서술)
+        4. **work_style**: 팀의 업무 방식 (2-3문장, 구체적으로 서술)
+        5. **hiring_reason**: 채용 이유/목적 (2-3문장, 구체적으로 서술)
 
         **분석 원칙:**
         - 사실 기반 분석 (실제 답변에 있는 내용만 추출)
@@ -111,7 +111,7 @@ def analyze_company_general_interview(answers: List[dict]) -> CompanyGeneralAnal
 
     settings = get_settings()
     llm = ChatOpenAI(
-        model="gpt-4o",
+        model="gpt-4.1-mini",
         temperature=0.3,
         api_key=settings.OPENAI_API_KEY
     ).with_structured_output(CompanyGeneralAnalysis)

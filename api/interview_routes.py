@@ -954,16 +954,27 @@ async def generate_matching_vectors(request: GenerateMatchingVectorsRequest):
         situational_report=situational_report
     )
 
-    # 백엔드에 매칭 벡터 POST
+    # 백엔드에 매칭 벡터 POST (벡터 + 텍스트)
     backend_client = get_backend_client()
     try:
+        # 백엔드 API 스펙에 맞게 필드명 변환
+        # roles_text -> text_roles, skills_text -> text_skills, etc.
+        vectors_and_texts = {
+            **result["vectors"],  # vector_roles, vector_skills, etc.
+            "text_roles": result["texts"]["roles_text"],
+            "text_skills": result["texts"]["skills_text"],
+            "text_growth": result["texts"]["growth_text"],
+            "text_career": result["texts"]["career_text"],
+            "text_vision": result["texts"]["vision_text"],
+            "text_culture": result["texts"]["culture_text"]
+        }
         backend_response = await backend_client.post_matching_vectors(
-            vectors_data=result["vectors"],
+            vectors_data=vectors_and_texts,
             access_token=request.access_token,
             role="talent"  # talent는 job_posting_id 없이 전송
         )
     except Exception as e:
-        print(f"[ERROR] Failed to post matching vectors: {str(e)}")
+        logger.error(f"Failed to post matching vectors: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to post matching vectors to backend: {str(e)}"

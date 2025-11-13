@@ -143,7 +143,11 @@ def analyze_situational_answer(
         답변을 분석하여 각 차원별 성향 점수를 제공하세요.
         실제 답변에서 드러난 내용만 분석하고, 추측하지 마세요.
 
-        측정 대상이 아닌 차원은 빈 객체로 반환하세요.
+        **중요:**
+        - 각 차원(work_style, problem_solving 등)의 값은 반드시 dictionary 형태로 반환해야 합니다.
+        - 각 차원의 값은 하위 유형과 점수를 포함하는 dict 객체여야 합니다 (예: 주도형 0.8, 협력형 0.2).
+        - 측정 대상이 아닌 차원은 null로 반환하거나 포함하지 마세요.
+        - 절대로 float 값만 단독으로 반환하지 마세요. 반드시 dict 안에 키-값 쌍으로 반환하세요.
         """)
     ])
 
@@ -154,7 +158,16 @@ def analyze_situational_answer(
         api_key=settings.OPENAI_API_KEY
     ).with_structured_output(AnswerAnalysis)
 
-    return (prompt | llm).invoke({})
+    try:
+        print(f"[DEBUG] analyze_situational_answer called for dimensions: {target_dimensions}")
+        result = (prompt | llm).invoke({})
+        print(f"[DEBUG] LLM response: work_style={type(result.work_style)}, communication={type(result.communication)}")
+        return result
+    except Exception as e:
+        print(f"[ERROR] Failed to analyze situational answer: {type(e).__name__}: {str(e)}")
+        print(f"[ERROR] Question: {question[:100]}...")
+        print(f"[ERROR] Answer: {answer[:100]}...")
+        raise
 
 
 def analyze_situational_interview_for_card(

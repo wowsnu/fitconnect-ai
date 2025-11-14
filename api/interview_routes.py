@@ -7,6 +7,8 @@ Interview API Routes
 3. GET /interview/general/analysis/{session_id} - 최종 분석 결과
 """
 
+import logging
+
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional, List
@@ -34,10 +36,12 @@ from ai.interview.talent.card_generator import (
 from ai.interview.talent.models import CandidateProfile, CandidateProfileCard
 from ai.interview.client import get_backend_client
 from ai.stt.service import get_stt_service
+from config.settings import get_settings
 
 
 # 라우터 생성
 interview_router = APIRouter(prefix="/interview", tags=["Interview"])
+logger = logging.getLogger(__name__)
 
 
 # ==================== Utility Functions ====================
@@ -105,7 +109,8 @@ interview_sessions = {}
 
 class InterviewSession:
     """인터뷰 세션 데이터"""
-    def __init__(self, session_id: str):
+    def __init__(self, session_id: str, use_langgraph_for_questions: Optional[bool] = None):
+        settings = get_settings()
         self.session_id = session_id
         self.interview = GeneralInterview()
         self.general_analysis = None  # 구조화 면접 분석 결과
@@ -113,6 +118,11 @@ class InterviewSession:
         self.situational_interview = None  # 상황 면접
         self.created_at = datetime.now()
         self.updated_at = datetime.now()
+        self.use_langgraph_for_questions = (
+            use_langgraph_for_questions
+            if use_langgraph_for_questions is not None
+            else settings.USE_LANGGRAPH_FOR_QUESTIONS
+        )
 
 
 # ==================== Request/Response Models ====================
@@ -123,6 +133,11 @@ class StartInterviewResponse(BaseModel):
     question: str
     question_number: int
     total_questions: int
+
+
+class StartGeneralInterviewRequest(BaseModel):
+    """구조화 면접 시작 요청"""
+    use_langgraph_for_questions: Optional[bool] = None
 
 
 class AnswerRequest(BaseModel):
@@ -153,7 +168,7 @@ class AnalysisResponse(BaseModel):
 # ==================== API Endpoints ====================
 
 @interview_router.post("/general/start", response_model=StartInterviewResponse)
-async def start_general_interview():
+async def start_general_interview(request: Optional[StartGeneralInterviewRequest] = None):
     """
     구조화 면접 시작
 
@@ -163,9 +178,17 @@ async def start_general_interview():
         - question_number: 현재 질문 번호 (1)
         - total_questions: 전체 질문 수 (5)
     """
+    settings = get_settings()
+    use_langgraph = settings.USE_LANGGRAPH_FOR_QUESTIONS
+    if request and request.use_langgraph_for_questions is not None:
+        use_langgraph = request.use_langgraph_for_questions
+
     # 세션 생성
     session_id = str(uuid.uuid4())
-    session = InterviewSession(session_id)
+    session = InterviewSession(
+        session_id,
+        use_langgraph_for_questions=use_langgraph
+    )
     interview_sessions[session_id] = session
 
     # 첫 질문
@@ -359,52 +382,75 @@ async def start_technical_interview(request: StartTechnicalRequest):
     Returns:
         첫 질문
     """
-    # 세션 확인
-    session = get_session(request.session_id)
+    logger.info("[TechnicalStart] Received start request session=%s", request.session_id)
+    try:
+        # 세션 확인
+        session = get_session(request.session_id)
 
-    # 구조화 면접 완료 확인
-    if not session.interview.is_finished():
-        raise HTTPException(
-            status_code=400,
-            detail="General interview must be completed first"
+        # 구조화 면접 완료 확인
+        if not session.interview.is_finished():
+            raise HTTPException(
+                status_code=400,
+                detail="General interview must be completed first"
+            )
+
+        # 구조화 면접 분석 (아직 안했으면)
+        if not session.general_analysis:
+            answers = session.interview.get_answers()
+            session.general_analysis = analyze_general_interview(answers)
+
+        # 백엔드 API에서 프로필 가져오기
+        backend_client = get_backend_client()
+        try:
+            profile = await backend_client.get_talent_profile(request.access_token)
+
+            # 프로필에서 user_id 추출 (검증 및 로깅용)
+            if not profile.basic or not profile.basic.user_id:
+                raise ValueError("User ID not found in profile")
+
+            user_id = profile.basic.user_id
+            logger.info(
+                "[TechnicalStart] Starting technical interview for user_id=%s session=%s LangGraph=%s",
+                user_id,
+                request.session_id,
+                session.use_langgraph_for_questions,
+            )
+
+        except Exception as e:
+            logger.exception(
+                "[TechnicalStart] Failed to fetch profile from backend session=%s",
+                request.session_id
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to fetch profile from backend: {str(e)}"
+            )
+
+        # Technical Interview 초기화
+        session.technical_interview = TechnicalInterview(
+            profile=profile,
+            general_analysis=session.general_analysis,
+            use_langgraph_for_questions=session.use_langgraph_for_questions
         )
 
-    # 구조화 면접 분석 (아직 안했으면)
-    if not session.general_analysis:
-        answers = session.interview.get_answers()
-        session.general_analysis = analyze_general_interview(answers)
+        # 첫 질문
+        first_question = session.technical_interview.get_next_question()
 
-    # 백엔드 API에서 프로필 가져오기
-    backend_client = get_backend_client()
-    try:
-        profile = await backend_client.get_talent_profile(request.access_token)
-
-        # 프로필에서 user_id 추출 (검증 및 로깅용)
-        if not profile.basic or not profile.basic.user_id:
-            raise ValueError("User ID not found in profile")
-
-        user_id = profile.basic.user_id
-        print(f"[INFO] Starting technical interview for user_id={user_id}, session={request.session_id}")
-
-    except Exception as e:
+        return TechnicalQuestionResponse(
+            **first_question,
+            selected_skills=session.technical_interview.skills  # 선정된 기술 리스트 추가
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception(
+            "[TechnicalStart] Unexpected error while starting technical interview session=%s",
+            request.session_id
+        )
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to fetch profile from backend: {str(e)}"
+            detail="Failed to start technical interview due to unexpected error."
         )
-
-    # Technical Interview 초기화
-    session.technical_interview = TechnicalInterview(
-        profile=profile,
-        general_analysis=session.general_analysis
-    )
-
-    # 첫 질문
-    first_question = session.technical_interview.get_next_question()
-
-    return TechnicalQuestionResponse(
-        **first_question,
-        selected_skills=session.technical_interview.skills  # 선정된 기술 리스트 추가
-    )
 
 
 @interview_router.post("/technical/answer", response_model=TechnicalAnswerResponse)
@@ -578,7 +624,9 @@ async def start_situational_interview(
             )
 
     # Situational Interview 초기화
-    session.situational_interview = SituationalInterview()
+    session.situational_interview = SituationalInterview(
+        use_langgraph_for_questions=session.use_langgraph_for_questions
+    )
 
     # 첫 질문
     first_question = session.situational_interview.get_next_question()

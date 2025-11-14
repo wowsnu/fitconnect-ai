@@ -7,6 +7,7 @@ from typing import List, TypedDict, Literal
 from langgraph.graph import StateGraph, END
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
+from pydantic import BaseModel, Field
 
 from ai.interview.company.models import (
     CompanyGeneralAnalysis,
@@ -31,6 +32,7 @@ class SituationalQuestionState(TypedDict):
     generated_questions: List[CompanyInterviewQuestion]
     validation_errors: List[str]
     attempts: int
+    llm_feedback: str
 
     # Output
     final_questions: List[CompanyInterviewQuestion]
@@ -130,52 +132,109 @@ def generate_situational_questions_node(state: SituationalQuestionState) -> Situ
 
 # ==================== Validator Node ====================
 
-def validate_situational_questions_node(state: SituationalQuestionState) -> SituationalQuestionState:
-    """
-    Situational 질문 검증 노드
+class CompanySituationalValidationResult(BaseModel):
+    """LLM structured validation result for situational questions"""
+    is_valid: bool = Field(..., description="True if all questions meet the guidelines")
+    issues: List[str] = Field(default_factory=list)
+    reasoning: str = Field(..., description="Evaluation reasoning")
 
-    검증 항목:
-    1. 질문 개수 (정확히 3개)
-    2. 질문 내용 (비어있지 않은지)
-    3. 한글 질문인지 (영어 필터링)
-    4. 중복 질문 체크
-    """
-    print(f"[Validator] Validating {len(state['generated_questions'])} questions")
+
+def validate_situational_questions_llm_node(state: SituationalQuestionState) -> SituationalQuestionState:
+    """LLM 기반 의미 검증"""
+    print(f"[Validator:LLM] Evaluating {len(state['generated_questions'])} situational questions with LLM")
 
     generated_questions = state["generated_questions"]
-    errors = []
+    general_analysis = state["general_analysis"]
+    technical_requirements = state["technical_requirements"]
 
-    # 1. 질문 개수 검증
+    question_block = "\n\n".join([
+        f"{idx+1}. 질문: {q.question}\n   목적: {getattr(q, 'purpose', '')}"
+        for idx, q in enumerate(generated_questions)
+    ]) or "생성된 질문 없음"
+
+    context_summary = f"""
+[General 분석]
+- 핵심 가치: {', '.join(general_analysis.core_values)}
+- 이상적 인재: {', '.join(general_analysis.ideal_candidate_traits)}
+- 팀 문화: {general_analysis.team_culture}
+
+[Technical 분석]
+- 직무: {technical_requirements.job_title}
+- 필수 역량: {', '.join(technical_requirements.required_skills)}
+- 예상 도전: {technical_requirements.expected_challenges}
+"""
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", """당신은 인사팀 채용 담당자입니다. 아래 팀 문화/핏 질문들이 조건을 충족하는지 평가하세요.
+조건:
+1. 질문 수는 3개여야 하며, 각각 다른 팀 문화/협업/인재상 측면을 다뤄야 합니다.
+2. General/Technical 분석 및 고정 답변을 근거로 구체적인 후속 질문이어야 합니다.
+3. 질문은 한글이며, 실무 상황을 가정하고 지원자가 행동을 설명할 수 있어야 합니다.
+4. 중복되거나 모호한 질문은 허용되지 않습니다.
+
+모든 조건이 충족되지 않으면 is_valid=False로 두고 issues에 이유를 적으세요.
+"""),
+        ("user", f"""
+{context_summary}
+
+[생성된 질문들]
+{question_block}
+""")
+    ])
+
+    settings = get_settings()
+    llm = ChatOpenAI(
+        model="gpt-4.1-mini",
+        temperature=0,
+        api_key=settings.OPENAI_API_KEY
+    ).with_structured_output(CompanySituationalValidationResult)
+
+    result = (prompt | llm).invoke({})
+
+    state["validation_errors"] = list(result.issues or [])
+    state["llm_feedback"] = result.reasoning
+    state["is_valid"] = result.is_valid and not state["validation_errors"]
+
+    if result.is_valid:
+        print("[Validator:LLM] ✅ Semantic validation passed")
+    else:
+        print(f"[Validator:LLM] ❌ Semantic validation failed: {state['validation_errors']}")
+
+    return state
+
+
+def validate_situational_questions_node(state: SituationalQuestionState) -> SituationalQuestionState:
+    """기본 휴리스틱 검증"""
+    print(f"[Validator:Heuristic] Running safety checks on {len(state['generated_questions'])} questions")
+
+    errors = list(state.get("validation_errors", []))
+    generated_questions = state["generated_questions"]
+
     if len(generated_questions) != 3:
-        errors.append(f"Expected 3 questions, got {len(generated_questions)}")
+        errors.append(f"Expected exactly 3 questions, got {len(generated_questions)}")
 
-    # 2. 질문 내용 검증
+    seen = set()
     for idx, q in enumerate(generated_questions, 1):
-        # 비어있는 질문
-        if not q.question or len(q.question.strip()) < 10:
-            errors.append(f"Question {idx} is too short or empty")
+        text = (q.question or "").strip()
+        if len(text) < 15:
+            errors.append(f"Question {idx} is too short.")
+        if len(text) > 130:
+            errors.append(f"Question {idx} is too long (maximum 130 characters).")
+        english_chars = sum(1 for c in text if 'a' <= c.lower() <= 'z')
+        korean_chars = sum(1 for c in text if '가' <= c <= '힣')
+        if korean_chars <= english_chars:
+            errors.append(f"Question {idx} must be primarily in Korean.")
 
-        # 영어 질문 체크 (간단한 휴리스틱)
-        english_chars = sum(1 for c in q.question if 'a' <= c.lower() <= 'z')
-        korean_chars = sum(1 for c in q.question if '가' <= c <= '힣')
-        if english_chars > korean_chars:
-            errors.append(f"Question {idx} appears to be in English: {q.question[:50]}")
+        seen.add(text)
 
-    # 3. 중복 질문 검증
-    questions_text = [q.question.strip().lower() for q in generated_questions]
-    unique_questions = set(questions_text)
-    if len(unique_questions) < len(questions_text):
-        errors.append("Duplicate questions detected")
-
-    # State 업데이트
     state["validation_errors"] = errors
-    state["is_valid"] = len(errors) == 0
+    state["is_valid"] = state["is_valid"] and len(errors) == 0
 
     if state["is_valid"]:
-        print("[Validator] ✅ Validation passed")
+        print("[Validator:Heuristic] ✅ Validation passed")
         state["final_questions"] = generated_questions
     else:
-        print(f"[Validator] ❌ Validation failed: {errors}")
+        print(f"[Validator:Heuristic] ❌ Validation failed: {errors}")
 
     return state
 
@@ -219,11 +278,13 @@ def create_situational_question_graph() -> StateGraph:
 
     # 노드 추가
     workflow.add_node("generator", generate_situational_questions_node)
+    workflow.add_node("validator_llm", validate_situational_questions_llm_node)
     workflow.add_node("validator", validate_situational_questions_node)
 
     # Edge 추가
     workflow.set_entry_point("generator")
-    workflow.add_edge("generator", "validator")
+    workflow.add_edge("generator", "validator_llm")
+    workflow.add_edge("validator_llm", "validator")
 
     # Conditional Edge: validator 후 재생성 또는 종료
     workflow.add_conditional_edges(
@@ -274,6 +335,7 @@ def generate_situational_dynamic_questions(
         "generated_questions": [],
         "validation_errors": [],
         "attempts": 0,
+        "llm_feedback": "",
         "final_questions": [],
         "is_valid": False
     }

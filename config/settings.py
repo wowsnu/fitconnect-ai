@@ -43,8 +43,9 @@ class Settings(BaseSettings):
         "http://localhost:8080",
         "http://localhost:5173",
         "http://54.89.71.175:8000",
+        "http://52.91.24.1:8000",
         "https://fitconnect-frontend.vercel.app",
-        "https://fit-back.duckdns.org:8000",
+        "https://fit-back.duckdns.org",
     ]
 
     # Backend API URL (for calling main backend from AI service)

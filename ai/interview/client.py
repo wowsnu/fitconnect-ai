@@ -4,9 +4,12 @@ Backend API Client for Interview System
 """
 
 import httpx
+import logging
 from typing import Optional
 from ai.interview.talent.models import CandidateProfile
 from config.settings import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 class BackendAPIClient:
@@ -20,6 +23,8 @@ class BackendAPIClient:
         settings = get_settings()
         self.backend_url = backend_url or settings.BACKEND_API_URL
         self.timeout = 30.0  # 30초 타임아웃
+        logger.info(f"[BackendClient] Initialized with backend_url={self.backend_url} (type: {type(self.backend_url)})")
+        logger.info(f"[BackendClient] Settings BACKEND_API_URL={settings.BACKEND_API_URL} (type: {type(settings.BACKEND_API_URL)})")
 
     async def get_talent_profile(self, access_token: str) -> CandidateProfile:
         """
@@ -37,27 +42,53 @@ class BackendAPIClient:
             httpx.HTTPStatusError: API 호출 실패
         """
         url = f"{self.backend_url}/api/me/talent/full"
+        logger.info(f"[BackendClient] Fetching talent profile from URL: {url}")
+        logger.info(f"[BackendClient] Backend URL type: {type(self.backend_url)}, value: {self.backend_url}")
+        logger.info(f"[BackendClient] Token (first 20 chars): {access_token[:20]}...")
+
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json"
         }
 
-        async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
-            response = await client.get(url, headers=headers)
-            response.raise_for_status()
+        try:
+            # 타임아웃 설정: connect=60초, read=30초, write=30초, pool=30초
+            timeout = httpx.Timeout(connect=60.0, read=30.0, write=30.0, pool=30.0)
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                logger.info(f"[BackendClient] Sending GET request to {url}")
+                response = await client.get(url, headers=headers)
 
-            data = response.json()
+                logger.info(f"[BackendClient] Response status: {response.status_code}")
+                logger.info(f"[BackendClient] Response headers: {dict(response.headers)}")
 
-            # 응답 구조: {"ok": true, "data": {...}}
-            if not data.get("ok"):
-                raise ValueError(f"Backend API returned ok=false: {data}")
+                response.raise_for_status()
 
-            profile_data = data.get("data")
-            if not profile_data:
-                raise ValueError("Backend API returned empty data")
+                data = response.json()
+                logger.info(f"[BackendClient] Response data keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}")
 
-            # CandidateProfile로 변환
-            return CandidateProfile(**profile_data)
+                # 응답 구조: {"ok": true, "data": {...}}
+                if not data.get("ok"):
+                    logger.error(f"[BackendClient] Backend API returned ok=false: {data}")
+                    raise ValueError(f"Backend API returned ok=false: {data}")
+
+                profile_data = data.get("data")
+                if not profile_data:
+                    logger.error(f"[BackendClient] Backend API returned empty data")
+                    raise ValueError("Backend API returned empty data")
+
+                logger.info(f"[BackendClient] Profile data keys: {list(profile_data.keys()) if isinstance(profile_data, dict) else 'Not a dict'}")
+
+                # CandidateProfile로 변환
+                profile = CandidateProfile(**profile_data)
+                logger.info(f"[BackendClient] Successfully created CandidateProfile")
+                return profile
+
+        except httpx.HTTPStatusError as e:
+            logger.exception(f"[BackendClient] HTTP error fetching profile: {e.response.status_code} - {e.response.text}")
+            raise
+        except Exception as e:
+            logger.exception(f"[BackendClient] Unexpected error fetching profile: {str(e)}")
+            raise
 
     async def post_talent_card(self, talent_card_data: dict, access_token: str) -> dict:
         """

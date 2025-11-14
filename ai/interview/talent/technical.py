@@ -28,7 +28,8 @@ def generate_personalized_question(
     question_number: int,  # 1, 2, 3 (해당 기술의 몇 번째 질문인지)
     profile: CandidateProfile,
     general_analysis: GeneralInterviewAnalysis,
-    previous_skill_answers: List[dict] = None
+    previous_skill_answers: List[dict] = None,
+    use_langgraph_for_questions: Optional[bool] = None
 ) -> InterviewQuestion:
     """
     프로필 + 구조화 면접 분석 + 이전 답변을 조합한 개인화 질문 생성
@@ -43,7 +44,26 @@ def generate_personalized_question(
     Returns:
         InterviewQuestion
     """
+    settings = get_settings()
     previous_skill_answers = previous_skill_answers or []
+    use_langgraph = (
+        use_langgraph_for_questions
+        if use_langgraph_for_questions is not None
+        else settings.USE_LANGGRAPH_FOR_QUESTIONS
+    )
+
+    # LangGraph 사용 여부에 따라 분기
+    if use_langgraph:
+        # LangGraph 버전 (Generator → Validator → Conditional Edge)
+        from ai.interview.talent.technical_graph import generate_personalized_question_with_graph
+
+        return generate_personalized_question_with_graph(
+            skill=skill,
+            question_number=question_number,
+            profile=profile,
+            general_analysis=general_analysis,
+            previous_skill_answers=previous_skill_answers
+        )
 
     # 이전 답변 정리
     prev_context = ""
@@ -154,6 +174,7 @@ def generate_personalized_question(
         - 추정 및 과장 금지 (언급되지 않은 내용을 만들어내지 말 것)
         - 유사 질문 금지 (의미없이 비슷한 질문을 하는 것은 지양)
         - 추가 질문일 경우 이전 답변에서 언급된 내용을 바탕으로 더 구체적이고 깊이 있는 후속 질문을 생성
+        - **질문 길이는 130자 이내로 간결하게 작성**
        
         **예시:**
         - 새로운 교육 프로그램을 설계할 때, 학습자 요구나 조직의 목표를 어떻게 반영하셨나요? 설계 과정에서 어떤 의사결정을 내렸는지 구체적으로 말씀해 주세요.
@@ -170,8 +191,8 @@ def generate_personalized_question(
 
     settings = get_settings()
     llm = ChatOpenAI(
-        model="gpt-4o",
-        temperature=0.7,
+        model="gpt-4.1-mini",
+        temperature=0.5,
         api_key=settings.OPENAI_API_KEY
     ).with_structured_output(InterviewQuestion)
 
@@ -222,7 +243,7 @@ def analyze_answer(
 
     settings = get_settings()
     llm = ChatOpenAI(
-        model="gpt-4o",
+        model="gpt-4.1-mini",
         temperature=0.3,
         api_key=settings.OPENAI_API_KEY
     ).with_structured_output(AnswerFeedback)
@@ -295,7 +316,7 @@ def analyze_technical_interview(technical_results: dict) -> TechnicalInterviewAn
 
     settings = get_settings()
     llm = ChatOpenAI(
-        model="gpt-4o",
+        model="gpt-4.1-mini",
         temperature=0.3,
         api_key=settings.OPENAI_API_KEY
     ).with_structured_output(TechnicalInterviewAnalysis)
@@ -381,7 +402,7 @@ def analyze_technical_interview_for_card(
 
     settings = get_settings()
     llm = ChatOpenAI(
-        model="gpt-4o",
+        model="gpt-4.1-mini",
         temperature=0.3,
         api_key=settings.OPENAI_API_KEY
     ).with_structured_output(TechnicalInterviewCardPart)
@@ -397,7 +418,8 @@ class TechnicalInterview:
         profile: CandidateProfile,
         general_analysis: GeneralInterviewAnalysis,
         num_skills: int = 3,
-        questions_per_skill: int = 3
+        questions_per_skill: int = 3,
+        use_langgraph_for_questions: Optional[bool] = None
     ):
         """
         Args:
@@ -406,9 +428,15 @@ class TechnicalInterview:
             num_skills: 평가할 기술 개수 (기본 3개)
             questions_per_skill: 기술당 질문 수 (기본 3개)
         """
+        settings = get_settings()
         self.profile = profile
         self.general_analysis = general_analysis
         self.questions_per_skill = questions_per_skill
+        self.use_langgraph_for_questions = (
+            use_langgraph_for_questions
+            if use_langgraph_for_questions is not None
+            else settings.USE_LANGGRAPH_FOR_QUESTIONS
+        )
 
         # 평가할 기술 선정
         self.skills = self._select_skills(num_skills)
@@ -490,7 +518,8 @@ class TechnicalInterview:
             question_number=self.current_question_num,
             profile=self.profile,
             general_analysis=self.general_analysis,
-            previous_skill_answers=previous_answers
+            previous_skill_answers=previous_answers,
+            use_langgraph_for_questions=self.use_langgraph_for_questions
         )
 
         self.current_question = {

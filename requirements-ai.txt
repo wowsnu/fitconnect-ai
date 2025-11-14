@@ -11,6 +11,7 @@ sentence-transformers==3.2.1
 torch==2.8.0
 transformers==4.46.3
 git+https://github.com/openai/whisper.git
+faiss-cpu==1.8.0
 
 # LangChain (for AI Interview System)
 langchain>=0.3.7

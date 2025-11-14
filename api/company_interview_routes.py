@@ -37,6 +37,7 @@ from ai.interview.company.models import (
     JobPostingCard
 )
 from ai.stt.service import get_stt_service
+from config.settings import get_settings
 
 
 # 라우터 생성
@@ -53,7 +54,14 @@ company_sessions = {}
 
 class CompanyInterviewSession:
     """기업 면접 세션 데이터"""
-    def __init__(self, session_id: str, company_name: str, existing_jd: Optional[str] = None):
+    def __init__(
+        self,
+        session_id: str,
+        company_name: str,
+        existing_jd: Optional[str] = None,
+        use_langgraph_for_questions: Optional[bool] = None
+    ):
+        settings = get_settings()
         self.session_id = session_id
         self.company_name = company_name
         self.existing_jd = existing_jd
@@ -75,6 +83,11 @@ class CompanyInterviewSession:
         # 타임스탬프
         self.created_at = datetime.now()
         self.updated_at = datetime.now()
+        self.use_langgraph_for_questions = (
+            use_langgraph_for_questions
+            if use_langgraph_for_questions is not None
+            else settings.USE_LANGGRAPH_FOR_QUESTIONS
+        )
 
 
 # ==================== Request/Response Models ====================
@@ -84,6 +97,7 @@ class StartCompanyInterviewRequest(BaseModel):
     access_token: str
     company_name: Optional[str] = None  # 선택: 없으면 백엔드에서 자동 로드
     existing_jd: Optional[str] = None  # 기존 JD (선택, deprecated - Technical에서 job_posting_id 사용 권장)
+    use_langgraph_for_questions: Optional[bool] = None
 
 
 class StartInterviewResponse(BaseModel):
@@ -184,12 +198,19 @@ async def start_company_general_interview(request: StartCompanyInterviewRequest)
             print(f"[WARNING] Failed to load company profile: {str(e)}")
             company_name = "기업"  # 기본값
 
+    # LangGraph 사용 여부 결정
+    settings = get_settings()
+    use_langgraph = settings.USE_LANGGRAPH_FOR_QUESTIONS
+    if request.use_langgraph_for_questions is not None:
+        use_langgraph = request.use_langgraph_for_questions
+
     # 세션 생성
     session_id = str(uuid.uuid4())
     session = CompanyInterviewSession(
         session_id=session_id,
         company_name=company_name,
-        existing_jd=request.existing_jd
+        existing_jd=request.existing_jd,
+        use_langgraph_for_questions=use_langgraph
     )
     company_sessions[session_id] = session
 
@@ -402,7 +423,8 @@ async def start_company_technical_interview(request: StartTechnicalInterviewRequ
     session.technical_interview = CompanyTechnicalInterview(
         general_analysis=session.general_analysis,
         existing_jd=existing_jd,
-        company_info=company_info
+        company_info=company_info,
+        use_langgraph_for_questions=session.use_langgraph_for_questions
     )
 
     # 첫 질문
@@ -536,7 +558,8 @@ async def start_company_situational_interview(request: StartSituationalRequest):
     session.situational_interview = CompanySituationalInterview(
         general_analysis=session.general_analysis,
         technical_requirements=session.technical_requirements,
-        company_info=session.company_info
+        company_info=session.company_info,
+        use_langgraph_for_questions=session.use_langgraph_for_questions
     )
 
     # 첫 질문

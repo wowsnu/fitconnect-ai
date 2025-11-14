@@ -38,7 +38,8 @@ class CompanySituationalInterview:
         general_analysis: CompanyGeneralAnalysis,
         technical_requirements: TechnicalRequirements,
         company_info: Optional[dict] = None,
-        questions: Optional[List[str]] = None
+        questions: Optional[List[str]] = None,
+        use_langgraph_for_questions: Optional[bool] = None
     ):
         """
         Args:
@@ -47,6 +48,7 @@ class CompanySituationalInterview:
             company_info: 기업 기본 정보 (선택) - culture, vision_mission 등
             questions: 커스텀 질문 리스트 (없으면 기본 질문 사용)
         """
+        settings = get_settings()
         self.general_analysis = general_analysis
         self.technical_requirements = technical_requirements
         self.company_info = company_info or {}
@@ -54,6 +56,11 @@ class CompanySituationalInterview:
         self.current_index = 0
         self.answers = []
         self.dynamic_questions = []
+        self.use_langgraph_for_questions = (
+            use_langgraph_for_questions
+            if use_langgraph_for_questions is not None
+            else settings.USE_LANGGRAPH_FOR_QUESTIONS
+        )
 
     def get_next_question(self) -> Optional[Dict]:
         """다음 질문 반환 (고정 또는 동적)"""
@@ -130,13 +137,11 @@ class CompanySituationalInterview:
 
     def _generate_dynamic_questions(self):
         """실시간 추천 질문 생성 (정확히 3개)"""
-        settings = get_settings()
-
         # 고정 질문 답변만 사용
         fixed_answers = [a for a in self.answers if a["type"] == "fixed"]
 
         # LangGraph 사용 여부에 따라 분기
-        if settings.USE_LANGGRAPH_FOR_QUESTIONS:
+        if self.use_langgraph_for_questions:
             # LangGraph 버전 (Generator → Validator → Conditional Edge)
             from ai.interview.company.situational_graph import generate_situational_dynamic_questions
 
@@ -204,6 +209,7 @@ class CompanySituationalInterview:
                 ("user", f"{context}{company_context}\n[Situational 고정 질문 답변]\n{all_qa}")
             ])
 
+            settings = get_settings()
             llm = ChatOpenAI(
                 model="gpt-4.1-mini",
                 temperature=0.5,

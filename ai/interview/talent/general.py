@@ -119,7 +119,7 @@ def analyze_general_interview(answers: List[dict]) -> GeneralInterviewAnalysis:
 
     settings = get_settings()
     llm = ChatOpenAI(
-        model="gpt-4o",
+        model="gpt-4.1-mini",
         temperature=0.3,
         api_key=settings.OPENAI_API_KEY
     ).with_structured_output(GeneralInterviewAnalysis)
@@ -206,7 +206,7 @@ def analyze_general_interview_for_card(
 
     settings = get_settings()
     llm = ChatOpenAI(
-        model="gpt-4o",
+        model="gpt-4.1-mini",
         temperature=0.3,
         api_key=settings.OPENAI_API_KEY
     ).with_structured_output(GeneralInterviewCardPart)

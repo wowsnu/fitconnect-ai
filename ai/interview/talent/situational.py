@@ -153,7 +153,7 @@ def analyze_situational_answer(
 
     settings = get_settings()
     llm = ChatOpenAI(
-        model="gpt-4o",
+        model="gpt-4.1-mini",
         temperature=0.3,
         api_key=settings.OPENAI_API_KEY
     ).with_structured_output(AnswerAnalysis)
@@ -261,7 +261,7 @@ def analyze_situational_interview_for_card(
 
     settings = get_settings()
     llm = ChatOpenAI(
-        model="gpt-4o",
+        model="gpt-4.1-mini",
         temperature=0.3,
         api_key=settings.OPENAI_API_KEY
     ).with_structured_output(SituationalInterviewCardPart)
@@ -272,7 +272,8 @@ def analyze_situational_interview_for_card(
 def generate_deep_dive_question(
     dominant_trait: str,
     dimension: str,
-    qa_history: List[dict]
+    qa_history: List[dict],
+    use_langgraph_for_questions: Optional[bool] = None
 ) -> str:
     """
     심화 질문 생성
@@ -285,6 +286,25 @@ def generate_deep_dive_question(
     Returns:
         심화 질문
     """
+    settings = get_settings()
+    use_langgraph = (
+        use_langgraph_for_questions
+        if use_langgraph_for_questions is not None
+        else settings.USE_LANGGRAPH_FOR_QUESTIONS
+    )
+
+    # LangGraph 사용 여부에 따라 분기
+    if use_langgraph:
+        # LangGraph 버전 (Generator → Validator → Conditional Edge)
+        from ai.interview.talent.situational_graph import generate_deep_dive_question_with_graph
+
+        return generate_deep_dive_question_with_graph(
+            dominant_trait=dominant_trait,
+            dimension=dimension,
+            qa_history=qa_history
+        )
+
+    # 기존 LangChain 버전
     # 이전 답변 요약
     history_text = "\n".join([
         f"Q: {qa['question']}\nA: {qa['answer'][:100]}..."
@@ -314,7 +334,8 @@ def generate_deep_dive_question(
         - 예/아니오로 답할 수 없는 열린 질문
         - 특정 직군에 국한되지 않는 범용적인 상황 질문
         - 인터뷰 대상자가 이해하기 쉽고 자연스러운 질문
-
+        -- **질문 길이는 130자 이내로 간결하게 작성** 
+        
         **예시:**
         - 주도형 → "팀이나 리더의 결정이 조직 목표와 맞지 않다고 느낄 때 어떻게 행동하시나요? 구체적인 사례를 들어 말씀해주세요."
         - 분석형 → "새로운 프로젝트나 문제를 맡았을 때, 문제의 원인을 분석하고 해결책을 설계한 경험이 있나요? 과정과 결과를 중심으로 말씀해주세요."
@@ -325,7 +346,7 @@ def generate_deep_dive_question(
 
     settings = get_settings()
     llm = ChatOpenAI(
-        model="gpt-4o",
+        model="gpt-4.1-mini",
         temperature=0.5,
         api_key=settings.OPENAI_API_KEY
     )
@@ -337,10 +358,16 @@ def generate_deep_dive_question(
 class SituationalInterview:
     """상황 면접 관리 클래스"""
 
-    def __init__(self):
+    def __init__(self, use_langgraph_for_questions: Optional[bool] = None):
         # 상태
         self.current_question_num = 0  # 0부터 시작
         self.phase: Literal["exploration", "deep_dive", "validation"] = "exploration"
+        settings = get_settings()
+        self.use_langgraph_for_questions = (
+            use_langgraph_for_questions
+            if use_langgraph_for_questions is not None
+            else settings.USE_LANGGRAPH_FOR_QUESTIONS
+        )
 
         # 페르소나 점수 초기화
         self.persona_scores = PersonaScores(
@@ -391,7 +418,8 @@ class SituationalInterview:
             question_text = generate_deep_dive_question(
                 dominant_trait=dominant["trait"],
                 dimension=dominant["dimension"],
-                qa_history=self.qa_history
+                qa_history=self.qa_history,
+                use_langgraph_for_questions=self.use_langgraph_for_questions
             )
 
             self.current_question = {
@@ -580,7 +608,7 @@ class SituationalInterview:
 
         settings = get_settings()
         llm = ChatOpenAI(
-            model="gpt-4o",
+            model="gpt-4.1-mini",
             temperature=0.5,
             api_key=settings.OPENAI_API_KEY
         ).with_structured_output(FinalPersonaReport)

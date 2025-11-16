@@ -18,6 +18,12 @@ from ai.interview.company.models import (
 from config.settings import get_settings
 
 
+def _escape_curly(text: str) -> str:
+    if not text:
+        return ""
+    return text.replace("{", "{{").replace("}", "}}")
+
+
 # ==================== State 정의 ====================
 
 class SituationalQuestionState(TypedDict):
@@ -39,6 +45,39 @@ class SituationalQuestionState(TypedDict):
     is_valid: bool
 
 
+def _format_question_history(fixed_answers: List[dict], previous_generated: List[CompanyInterviewQuestion] = None, limit: int = 8) -> str:
+    history_lines = []
+    for ans in fixed_answers[-limit:]:
+        question = (ans.get("question") or "").strip()
+        if question:
+            history_lines.append(f"- [고정] {question}")
+
+    if previous_generated:
+        for q in previous_generated[-limit:]:
+            text = (q.question or "").strip()
+            if text:
+                history_lines.append(f"- [이전 동적] {text}")
+
+    return "\n".join(history_lines) if history_lines else "없음"
+
+
+def _format_question_history(fixed_answers: List[dict], previous_generated: List[CompanyInterviewQuestion] = None, limit: int = 8) -> str:
+    """기존 질문 목록 요약"""
+    history_lines = []
+    for ans in fixed_answers[-limit:]:
+        question = (ans.get("question") or "").strip()
+        if question:
+            history_lines.append(f"- [고정] {question}")
+
+    if previous_generated:
+        for q in previous_generated[-limit:]:
+            text = (q.question or "").strip()
+            if text:
+                history_lines.append(f"- [이전 동적] {text}")
+
+    return "\n".join(history_lines) if history_lines else "없음"
+
+
 # ==================== Generator Node ====================
 
 def generate_situational_questions_node(state: SituationalQuestionState) -> SituationalQuestionState:
@@ -53,6 +92,23 @@ def generate_situational_questions_node(state: SituationalQuestionState) -> Situ
     technical_requirements = state["technical_requirements"]
     fixed_answers = state["fixed_answers"]
     company_info = state["company_info"]
+    question_history = _format_question_history(fixed_answers, state.get("generated_questions"))
+
+    previous_failure_context = ""
+    if state["attempts"] > 0 and state.get("validation_errors"):
+        prev_questions = "\n".join(
+            f"{idx+1}. {q.question}"
+            for idx, q in enumerate(state.get("generated_questions") or [])
+        ) or "이전 생성 없음"
+        previous_failure_context = f"""
+**⚠️ 이전 시도 실패 이유:**
+{chr(10).join(f"- {err}" for err in state["validation_errors"])}
+
+**이전에 생성한 질문들 (사용 불가):**
+{prev_questions}
+
+위 실패 이유를 참고하여, 중복되지 않는 새로운 질문 3개를 생성하세요.
+"""
 
     # 1. 고정 질문 답변 포맷팅
     all_qa = "\n\n".join([
@@ -86,6 +142,12 @@ def generate_situational_questions_node(state: SituationalQuestionState) -> Situ
             company_context = "\n[기업 정보]\n" + "\n".join(company_parts) + "\n"
 
     # 4. 프롬프트 구성 (기존과 동일)
+    context_safe = _escape_curly(context)
+    company_context_safe = _escape_curly(company_context)
+    all_qa_safe = _escape_curly(all_qa)
+    question_history_safe = _escape_curly(question_history)
+    previous_failure_safe = _escape_curly(previous_failure_context)
+
     prompt = ChatPromptTemplate.from_messages([
         ("system", """당신은 인사팀 채용 담당자로, 공고(포지션)에 대한 정보를 자세히 파악하고자 실무진 부서와 인터뷰 중입니다.
 
@@ -108,7 +170,16 @@ def generate_situational_questions_node(state: SituationalQuestionState) -> Situ
 - 팀 문화와 직무 특성을 연결하여 질문
 - 정확히 3개의 질문만 생성
 """),
-        ("user", f"{context}{company_context}\n[Situational 고정 질문 답변]\n{all_qa}")
+        ("user", f"""{context_safe}{company_context_safe}
+[Situational 고정 질문 답변]
+{all_qa_safe}
+
+**이미 진행한 질문 목록(최대 8개):**
+{question_history_safe}
+{previous_failure_safe}
+
+→ 위 질문들과 동일/유사한 내용을 반복하지 말고, 새로운 팀 문화/핏 질문 3개를 생성하세요.
+""")
     ])
 
     # 5. LLM 호출
@@ -249,7 +320,7 @@ def should_regenerate_situational(state: SituationalQuestionState) -> Literal["r
     - 검증 실패 + 최대 시도 횟수 미만: regenerate
     - 검증 실패 + 최대 시도 횟수 도달: finish (현재 질문 사용)
     """
-    max_attempts = 3
+    max_attempts = 5
 
     if state["is_valid"]:
         print("[Decision] Questions are valid. Finishing.")
@@ -258,7 +329,7 @@ def should_regenerate_situational(state: SituationalQuestionState) -> Literal["r
     if state["attempts"] >= max_attempts:
         print(f"[Decision] Max attempts ({max_attempts}) reached. Using current questions anyway.")
         # 최대 시도 횟수 도달 시 현재 질문으로 진행
-        state["final_questions"] = state["generated_questions"]
+        state["final_questions"] = state.get("generated_questions", [])
         return "finish"
 
     print(f"[Decision] Invalid. Regenerating... (attempt {state['attempts']}/{max_attempts})")
@@ -347,7 +418,7 @@ def generate_situational_dynamic_questions(
     print(f"\n{'='*60}")
     print(f"✅ Generation Complete!")
     print(f"Attempts: {final_state['attempts']}")
-    print(f"Final Questions: {len(final_state['final_questions'])}")
+    print(f"Final Questions: {len(final_state.get('final_questions') or [])}")
     print(f"Valid: {final_state['is_valid']}")
     print(f"{'='*60}\n")
 

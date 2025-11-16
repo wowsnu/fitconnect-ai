@@ -430,6 +430,8 @@ async def start_technical_interview(request: StartTechnicalRequest):
         session.technical_interview = TechnicalInterview(
             profile=profile,
             general_analysis=session.general_analysis,
+            num_skills=4,  # 기술 4개
+            questions_per_skill=2,  # 기술당 2문항 (총 8문항)
             use_langgraph_for_questions=session.use_langgraph_for_questions
         )
 
@@ -552,9 +554,10 @@ async def get_technical_results(session_id: str):
 
     # 완료 확인
     if not session.technical_interview.is_finished():
+        total_questions = len(session.technical_interview.skills) * session.technical_interview.questions_per_skill
         raise HTTPException(
             status_code=400,
-            detail=f"Technical interview not finished. {session.technical_interview.get_total_answered()}/9 questions answered."
+            detail=f"Technical interview not finished. {session.technical_interview.get_total_answered()}/{total_questions} questions answered."
         )
 
     return session.technical_interview.get_results()

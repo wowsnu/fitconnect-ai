@@ -20,6 +20,12 @@ from ai.interview.company.models import (
 from config.settings import get_settings
 
 
+def _escape_curly(text: Optional[str]) -> str:
+    if not text:
+        return ""
+    return text.replace("{", "{{").replace("}", "}}")
+
+
 # Situational 고정 질문 (5개)
 COMPANY_SITUATIONAL_QUESTIONS = [
     "팀 내 업무 분담과 의사결정 방식은 어떻게 이루어지나요?",
@@ -158,6 +164,11 @@ class CompanySituationalInterview:
                 f"질문: {a['question']}\n답변: {a['answer']}"
                 for a in fixed_answers
             ])
+            question_history = _format_question_history(fixed_answers)
+            context_safe = _escape_curly(context)
+            company_context_safe = _escape_curly(company_context)
+            all_qa_safe = _escape_curly(all_qa)
+            question_history_safe = _escape_curly(question_history)
 
             # 이전 단계 분석 결과 요약
             context = f"""
@@ -206,7 +217,15 @@ class CompanySituationalInterview:
 - 팀 문화와 직무 특성을 연결하여 질문
 - 정확히 3개의 질문만 생성
 """),
-                ("user", f"{context}{company_context}\n[Situational 고정 질문 답변]\n{all_qa}")
+                ("user", f"""{context_safe}{company_context_safe}
+[Situational 고정 질문 답변]
+{all_qa_safe}
+
+**이미 진행한 질문 목록(최대 8개):**
+{question_history_safe}
+
+→ 위 질문과 동일/유사한 follow-up 질문을 반복하지 말고, 새로운 관점에서 3개를 생성하세요.
+""")
             ])
 
             settings = get_settings()

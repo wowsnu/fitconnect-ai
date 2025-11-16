@@ -6,15 +6,16 @@ pydantic>=2.5.2,<3.0.0
 pydantic-settings==2.1.0
 
 # AI and ML dependencies
-openai==1.52.0
+openai>=2.8.0
 sentence-transformers==3.2.1
 torch==2.5.0
 transformers==4.46.3
 openai-whisper==20240930
 
 # LangChain (CRITICAL - heavily used in interview modules)
-langchain-openai==0.2.0
-langchain-core==0.3.0
+langchain-openai>=1.0.2
+langchain-core>=1.0.2
+langgraph>=0.2.45
 
 # HTTP Client
 httpx==0.25.2

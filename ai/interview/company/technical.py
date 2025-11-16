@@ -19,6 +19,12 @@ from ai.interview.company.models import (
 from config.settings import get_settings
 
 
+def _escape_curly(text: Optional[str]) -> str:
+    if not text:
+        return ""
+    return text.replace("{", "{{").replace("}", "}}")
+
+
 def format_job_posting_to_jd(job_posting: dict) -> str:
     """
     채용공고 데이터를 JD 텍스트로 변환
@@ -204,6 +210,7 @@ class CompanyTechnicalInterview:
                 f"질문: {a['question']}\n답변: {a['answer']}"
                 for a in fixed_answers
             ])
+            question_history = _format_question_history(fixed_answers)
 
             # General 분석 결과 요약
             general_summary = f"""
@@ -232,6 +239,11 @@ class CompanyTechnicalInterview:
             jd_context = ""
             if self.existing_jd:
                 jd_context = f"\n[기존 Job Description]\n{self.existing_jd}\n"
+            general_summary_safe = _escape_curly(general_summary)
+            company_context_safe = _escape_curly(company_context)
+            jd_context_safe = _escape_curly(jd_context)
+            all_qa_safe = _escape_curly(all_qa)
+            question_history_safe = _escape_curly(question_history)
 
             prompt = ChatPromptTemplate.from_messages([
                 ("system", """당신은 인사팀 채용 담당자로, 공고(포지션)에 대한 정보를 자세히 파악하고자 실무진 부서와 인터뷰 중입니다.
@@ -260,7 +272,16 @@ class CompanyTechnicalInterview:
 - 추가 질문일 경우 이전 답변에서 언급된 내용을 바탕으로 더 구체적이고 깊이 있는 후속 질문을 생성
 
 """),
-                ("user", f"{general_summary}\n{company_context}{jd_context}\n[Technical 고정 질문 답변]\n{all_qa}")
+                ("user", f"""{general_summary_safe}
+{company_context_safe}{jd_context_safe}
+[Technical 고정 질문 답변]
+{all_qa_safe}
+
+**이미 진행한 질문 목록(최대 8개):**
+{question_history_safe}
+
+→ 위 목록과 동일/유사한 질문을 반복하지 말고, 새로운 각도의 follow-up 질문 3개를 생성하세요.
+""")
             ])
 
             settings = get_settings()
@@ -339,3 +360,17 @@ def analyze_company_technical_interview(
     ).with_structured_output(TechnicalRequirements)
 
     return (prompt | llm).invoke({})
+def _format_question_history(fixed_answers: List[dict], extra_questions: Optional[List[str]] = None, limit: int = 8) -> str:
+    """과거 질문 목록 요약"""
+    history_lines: List[str] = []
+    for ans in fixed_answers[-limit:]:
+        question = (ans.get("question") or "").strip()
+        if question:
+            history_lines.append(f"- [고정] {question}")
+
+    if extra_questions:
+        for q in extra_questions[-limit:]:
+            if q:
+                history_lines.append(f"- [동적] {q.strip()}")
+
+    return "\n".join(history_lines) if history_lines else "없음"

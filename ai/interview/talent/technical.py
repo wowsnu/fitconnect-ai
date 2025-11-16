@@ -1,7 +1,7 @@
 """
 Technical Interview (직무 적합성 면접)
 
-- 3개 기술 × 3질문 = 9개 질문
+- 기본: 4개 기술 × 2질문 = 8개 질문 (설정 가능)
 - 구조화 면접 분석 결과 활용
 - 개인화된 질문 생성
 - 이전 답변 기반으로 자연스럽게 깊이 파고들기
@@ -11,6 +11,7 @@ Technical Interview (직무 적합성 면접)
 from typing import List, Optional
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
+from pydantic import BaseModel, Field
 
 from ai.interview.talent.models import (
     CandidateProfile,
@@ -23,38 +24,52 @@ from ai.interview.talent.models import (
 from config.settings import get_settings
 
 
+def _format_question_list(all_questions: List[dict], limit: int = 7) -> str:
+    """프롬프트용 간단 질문 목록"""
+    if not all_questions:
+        return "없음"
+
+    lines: List[str] = []
+    for item in all_questions[-limit:]:
+        question = (item.get("question") or "").strip()
+        skill = item.get("skill") or ""
+        skill_label = f"[기술: {skill}]" if skill else "[기술 정보 없음]"
+        qnum = item.get("question_number")
+        if qnum:
+            skill_label += f" Q{qnum}"
+        lines.append(f"- {skill_label} {question}")
+    return "\n".join(lines)
+
+
+class TechnicalSkillSelection(BaseModel):
+    """LLM structured output for 기술 선정"""
+    skills: List[str] = Field(
+        ...,
+        min_length=1,
+        description="중복 없는 기술/역량 키워드 목록"
+    )
+
+
 def generate_personalized_question(
     skill: str,
-    question_number: int,  # 1, 2, 3 (해당 기술의 몇 번째 질문인지)
+    question_number: int,
     profile: CandidateProfile,
     general_analysis: GeneralInterviewAnalysis,
     previous_skill_answers: List[dict] = None,
+    all_previous_questions: List[dict] = None,
     use_langgraph_for_questions: Optional[bool] = None
 ) -> InterviewQuestion:
-    """
-    프로필 + 구조화 면접 분석 + 이전 답변을 조합한 개인화 질문 생성
-
-    Args:
-        skill: 평가할 기술 (예: "FastAPI", "PostgreSQL")
-        question_number: 해당 기술의 몇 번째 질문인지 (1, 2, 3)
-        profile: 지원자 프로필
-        general_analysis: 구조화 면접 분석 결과
-        previous_skill_answers: 현재 기술의 이전 답변들
-
-    Returns:
-        InterviewQuestion
-    """
+    """프로필과 기존 질문 목록을 활용한 개인화 질문 생성"""
     settings = get_settings()
     previous_skill_answers = previous_skill_answers or []
+    all_previous_questions = all_previous_questions or []
     use_langgraph = (
         use_langgraph_for_questions
         if use_langgraph_for_questions is not None
         else settings.USE_LANGGRAPH_FOR_QUESTIONS
     )
 
-    # LangGraph 사용 여부에 따라 분기
     if use_langgraph:
-        # LangGraph 버전 (Generator → Validator → Conditional Edge)
         from ai.interview.talent.technical_graph import generate_personalized_question_with_graph
 
         return generate_personalized_question_with_graph(
@@ -62,10 +77,10 @@ def generate_personalized_question(
             question_number=question_number,
             profile=profile,
             general_analysis=general_analysis,
-            previous_skill_answers=previous_skill_answers
+            previous_skill_answers=previous_skill_answers,
+            all_previous_questions=all_previous_questions,
         )
 
-    # 이전 답변 정리
     prev_context = ""
     if previous_skill_answers:
         prev_context = "\n\n**이전 질문과 답변:**\n"
@@ -77,7 +92,8 @@ def generate_personalized_question(
                 if depth_areas:
                     prev_context += f"[파고들 포인트] {', '.join(depth_areas)}\n"
 
-    # 질문 번호에 따른 가이드
+    question_list_text = _format_question_list(all_previous_questions)
+
     if question_number == 1:
         depth_guide = """**1번째 질문 (도입):**
 - 구조화 면접에서 언급한 핵심 주제나 관심사를 자연스럽게 연결
@@ -85,51 +101,36 @@ def generate_personalized_question(
 - 예2: "디자인 프로젝트에서 사용자 피드백을 반영했다고 하셨는데, 구체적으로 어떤 과정을 거치셨나요?"
 - 지원자의 전반적인 역할, 경험에 대한 동기와 과정 탐색
 """
-    elif question_number == 2:
+    else:
         depth_guide = """**2번째 질문 (심화):**
-- 1번째 답변에서 언급한 경험에 대해 구체적인 사례나 방법을 더 깊이 탐구
+- 1번째 답변의 경험을 더 깊이 탐구하고, 사고의 깊이와 확장성 파악
+- 단순한 사례 회고가 아니라, '그 경험을 통해 무엇을 배웠고 이후 어떻게 적용했는가'를 끌어내는 단계
 - 예1: 1번에서 "마케팅 캠페인 성과 분석"을 언급했다면 → "성과 측정 시 어떤 지표나 도구를 활용하셨나요?"
-- 예2: 1번에서 "Redis 캐싱"을 언급했다면 → "Redis 캐싱 전략을 구체적으로 어떻게 설계하셨나요?"
+- 예2: "그 경험을 통해 얻은 교훈이나 인사이트를 이후 다른 프로젝트에 어떻게 적용하셨나요?"
+- 예3: "만약 같은 상황이 다시 온다면, 어떤 부분을 다르게 접근하고 싶으신가요?"
+- 예4: "그 접근법을 선택한 이유가 있나요? 다른 아키텍처는 고려하지 않으셨나요?"
+- 목표: 지원자의 사고 수준, 성장 가능성, 문제 재구조화 능력 파악
 - 실무 적용 과정, 문제 해결 접근법, 의사결정 근거 파악
 """
-    else:  # question_number == 3
-        depth_guide = """**3번째 질문 (심층 확장):**
-- 앞선 답변(1, 2번)을 바탕으로 사고의 깊이, 확장성, 전이 능력을 탐색
-- 단순한 사례 회고가 아니라, '그 경험을 통해 무엇을 배웠고 이후 어떻게 적용했는가'를 끌어내는 단계
-- 예1: "그 경험을 통해 얻은 교훈이나 인사이트를 이후 다른 프로젝트에 어떻게 적용하셨나요?"
-- 예2: "만약 같은 상황이 다시 온다면, 어떤 부분을 다르게 접근하고 싶으신가요?"
-- 예3: "그 접근법을 선택한 이유가 있나요? 다른 아키텍처는 고려하지 않으셨나요?"
-- 목표: 지원자의 사고 수준, 성장 가능성, 문제 재구조화 능력 파악
-"""
 
-    # 프로필에서 정보 추출
     job_category = profile.basic.tagline if profile.basic else ""
 
-    # 경력 정보에서 기술 스택 추출
     skills: List[str] = []
     for exp in profile.experiences:
         if exp.summary:
-            # summary에서 기술 키워드 추출 (간단한 방식)
             skills.extend([kw.strip() for kw in exp.summary.split(',') if kw.strip()])
 
-    # 자격증에서도 기술 추가
-    # skills.extend([cert.name for cert in profile.certifications])
-
-    # 중복 제거 및 길이 제한
     unique_skills = sorted({skill for skill in skills if skill})
     skills = unique_skills[:10]
 
-    # 총 경력 계산 (미기입 시 0으로 처리)
     total_experience = sum((exp.duration_years or 0) for exp in profile.experiences)
 
-    # 경력사항 요약
     experience_entries = []
     for exp in profile.experiences:
         duration_text = f"{exp.duration_years}년" if exp.duration_years is not None else "기간 정보 없음"
         experience_entries.append(f"- {exp.company_name} / {exp.title} ({duration_text})")
     experience_summary = "\n".join(experience_entries)
 
-    # 활동 요약
     activities_summary = "\n".join([
         f"- {act.name} ({act.category}): {act.description or ''}"
         for act in profile.activities
@@ -168,6 +169,9 @@ def generate_personalized_question(
         **질문 생성 전략:**
         {depth_guide}
 
+        **번호 규칙:**
+        - question_number는 해당 기술 내 순번 (1=도입, 2=심화)입니다.
+
         **질문 원칙:**
         - 열린 질문 (지원자가 실제 경험을 말할 수 있도록 유도, 실무 중심의 구체적인 질문)
         - 사실 기반 질문 (프로필과 인터뷰 답변에 있는 내용만 사용하여 적절한 질문 생성, 제시되지 않은 경험을 만들어서 물어보지 말 것)
@@ -175,6 +179,7 @@ def generate_personalized_question(
         - 유사 질문 금지 (의미없이 비슷한 질문을 하는 것은 지양)
         - 추가 질문일 경우 이전 답변에서 언급된 내용을 바탕으로 더 구체적이고 깊이 있는 후속 질문을 생성
         - **질문 길이는 130자 이내로 간결하게 작성**
+        - 아래 질문 목록(이미 사용한 질문)과 동일/유사한 질문을 반복하지 말 것
        
         **예시:**
         - 새로운 교육 프로그램을 설계할 때, 학습자 요구나 조직의 목표를 어떻게 반영하셨나요? 설계 과정에서 어떤 의사결정을 내렸는지 구체적으로 말씀해 주세요.
@@ -185,11 +190,14 @@ def generate_personalized_question(
 질문 번호: {question_number}/3
 {prev_context}
 
+**지금까지 사용한 질문 목록(최대 6개, 이미 진행한 질문입니다 / Qn은 해당 기술 내 순번):**
+{question_list_text}
+→ 위 질문을 반복하지 말고 새로운 각도의 질문을 생성하세요.
+
 {skill}에 대한 {question_number}번째 질문을 생성하세요.
 """)
     ])
 
-    settings = get_settings()
     llm = ChatOpenAI(
         model="gpt-4.1-mini",
         temperature=0.5,
@@ -450,12 +458,96 @@ class TechnicalInterview:
         self.current_question = None
 
     def _select_skills(self, num_skills: int) -> List[str]:
+        """LLM 기반 기술 선정 (휴리스틱 보조)"""
+        llm_skills = self._select_skills_with_llm(num_skills)
+        fallback_skills = self._select_skills_fallback(num_skills)
+
+        merged: List[str] = []
+        for skill in llm_skills + fallback_skills:
+            normalized = (skill or "").strip()
+            if not normalized:
+                continue
+            if normalized not in merged:
+                merged.append(normalized)
+            if len(merged) >= num_skills:
+                break
+
+        if not merged:
+            merged = fallback_skills[:num_skills]
+
+        return merged[:num_skills]
+
+    def _select_skills_with_llm(self, num_skills: int) -> List[str]:
+        """LLM에게 기술 선정 위임"""
+        if num_skills <= 0:
+            return []
+
+        job_category = self.profile.basic.tagline if self.profile.basic else ""
+        experience_entries = []
+        for exp in self.profile.experiences:
+            duration_text = f"{exp.duration_years}년" if exp.duration_years is not None else "기간 정보 없음"
+            summary = exp.summary or ""
+            entry = f"- {exp.company_name} / {exp.title} ({duration_text}) {summary}"
+            experience_entries.append(entry.strip())
+        experience_summary = "\n".join(experience_entries) or "경력 정보 없음"
+
+        analysis_summary = f"""
+주요 테마: {', '.join(self.general_analysis.key_themes)}
+관심 분야: {', '.join(self.general_analysis.interests)}
+강조 경험: {', '.join(self.general_analysis.emphasized_experiences)}
+언급 기술: {', '.join(self.general_analysis.technical_keywords)}
+"""
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", """당신은 채용 인터뷰 설계 전문가입니다.
+지원자의 프로필과 구조화 면접 분석을 토대로, 직무 적합성을 검증할 기술/역량 키워드를 선정하세요.
+
+선정 기준:
+1. 구조화 면접에서 언급되고 프로필에도 나타난 기술(교집합)을 최우선으로 포함
+2. 면접에서만 언급된 기술 (중요도가 높음)
+3. 프로필에서만 확인되는 기술이나 역할
+4. 위 기준으로 부족하면 interests, emphasized_experiences, 직무명 등을 활용
+5. 모든 항목은 중복 없이 구체적인 기술/역량 명칭일 것
+
+반드시 {num_skills}개를 반환하세요. 없으면 가장 관련성 높은 역량으로 채우세요."""),
+            ("user", f"""
+지원자 직무: {job_category or '정보 없음'}
+
+## 경력 요약
+{experience_summary}
+
+## 구조화 면접 분석
+{analysis_summary}
+
+LLM이 직접 기술 목록을 선정하고, JSON이 아닌 구조화 출력으로 반환하세요.
+""")
+        ])
+
+        settings = get_settings()
+        llm = ChatOpenAI(
+            model="gpt-4.1-mini",
+            temperature=0.3,
+            api_key=settings.OPENAI_API_KEY
+        ).with_structured_output(TechnicalSkillSelection)
+
+        try:
+            result = (prompt | llm).invoke({})
+            skills = [skill.strip() for skill in result.skills if skill.strip()]
+            return skills[:num_skills]
+        except Exception as exc:
+            print(f"[SkillSelect] LLM selection failed: {exc}")
+            return []
+
+    def _select_skills_fallback(self, num_skills: int) -> List[str]:
         """
-        평가할 기술 선정
+        평가할 기술 선정 (휴리스틱)
 
         우선순위:
         1. 구조화 면접에서 언급 + 프로필에 있는 기술
         2. 프로필에만 있는 기술
+        3. 구조화 면접 technical_keywords, interests, emphasized_experiences
+        4. 직무명(tagline) 기반
+        5. 기본 역량 키워드
         """
         mentioned_skills = set(self.general_analysis.technical_keywords)
 
@@ -475,21 +567,59 @@ class TechnicalInterview:
 
         # 중복 제거
         profile_skills = list(set(profile_skills))
+        mentioned_list = list(mentioned_skills)
 
-        # 1순위: 언급된 기술
-        priority_skills = [s for s in profile_skills if s in mentioned_skills]
+        # 1순위: 면접 언급 + 프로필 교집합 (가장 확실)
+        intersection_skills = [s for s in mentioned_list if s in profile_skills]
 
-        # 2순위: 프로필에만 있는 기술
-        other_skills = [s for s in profile_skills if s not in mentioned_skills]
+        # 2순위: 면접에서만 언급 (면접 중요도 높음)
+        mentioned_only = [s for s in mentioned_list if s not in profile_skills]
 
-        # 합쳐서 num_skills개 선택
-        selected = (priority_skills + other_skills)[:num_skills]
+        # 3순위: 프로필에만 있음
+        profile_only = [s for s in profile_skills if s not in mentioned_skills]
 
-        # 만약 추출된 기술이 없으면 기본값
-        if not selected:
-            default_skills = ["직무 전반", "프로젝트 경험", "문제 해결 능력"]
-            selected = default_skills[:num_skills]
-        return selected
+        # 합쳐서 선택
+        selected = (intersection_skills + mentioned_only + profile_only)[:num_skills]
+
+        # 부족하면 general_analysis에서 적극적으로 추출
+        if len(selected) < num_skills:
+            # technical_keywords에서 추가
+            remaining = [s for s in mentioned_skills if s not in selected]
+            selected.extend(remaining[:num_skills - len(selected)])
+
+        # 여전히 부족하면 interests, emphasized_experiences 활용
+        if len(selected) < num_skills:
+            candidates = []
+            candidates.extend(self.general_analysis.interests)
+            candidates.extend(self.general_analysis.emphasized_experiences)
+            for skill in candidates:
+                if skill not in selected and len(selected) < num_skills:
+                    selected.append(skill)
+
+        # 여전히 부족하면 tagline 기반
+        if len(selected) < num_skills and self.profile.basic and self.profile.basic.tagline:
+            tagline = self.profile.basic.tagline
+            if tagline not in selected:
+                selected.append(tagline)
+
+        # 최종 fallback: 기본 역량으로 무조건 채우기
+        if len(selected) < num_skills:
+            default_skills = [
+                "직무 전반 역량",
+                "프로젝트 수행 능력",
+                "문제 해결 능력",
+                "기술 역량",
+                "협업 및 커뮤니케이션",
+                "학습 및 성장 능력"
+            ]
+            for skill in default_skills:
+                if len(selected) >= num_skills:
+                    break
+                if skill not in selected:
+                    selected.append(skill)
+
+        # 무조건 num_skills 개수 보장
+        return selected[:num_skills]
 
     def get_next_question(self) -> Optional[dict]:
         """
@@ -512,6 +642,17 @@ class TechnicalInterview:
         # 현재 기술의 이전 답변들
         previous_answers = self.results[skill]
 
+        # 전체 기술의 질문 이력 수집 (중복 검증용)
+        all_questions = []
+        for s in self.skills:
+            for qa in self.results[s]:
+                all_questions.append({
+                    "skill": s,
+                    "question": qa["question"],
+                    "question_number": qa.get("question_number"),
+                    "answer": qa.get("answer"),
+                })
+
         # LLM으로 개인화된 질문 생성
         question_obj = generate_personalized_question(
             skill=skill,
@@ -519,6 +660,7 @@ class TechnicalInterview:
             profile=self.profile,
             general_analysis=self.general_analysis,
             previous_skill_answers=previous_answers,
+            all_previous_questions=all_questions,  # 추가
             use_langgraph_for_questions=self.use_langgraph_for_questions
         )
 

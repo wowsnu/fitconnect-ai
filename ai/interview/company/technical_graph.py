@@ -17,6 +17,12 @@ from ai.interview.company.models import (
 from config.settings import get_settings
 
 
+def _escape_curly(text: str) -> str:
+    if not text:
+        return ""
+    return text.replace("{", "{{").replace("}", "}}")
+
+
 # ==================== State 정의 ====================
 
 class TechnicalQuestionState(TypedDict):
@@ -38,6 +44,23 @@ class TechnicalQuestionState(TypedDict):
     is_valid: bool
 
 
+def _format_question_history(fixed_answers: List[dict], previous_generated: List[CompanyInterviewQuestion] = None, limit: int = 8) -> str:
+    """기존 질문 목록 요약"""
+    history_lines = []
+    for ans in fixed_answers[-limit:]:
+        question = (ans.get("question") or "").strip()
+        if question:
+            history_lines.append(f"- [고정] {question}")
+
+    if previous_generated:
+        for q in previous_generated[-limit:]:
+            text = (q.question or "").strip()
+            if text:
+                history_lines.append(f"- [이전 동적] {text}")
+
+    return "\n".join(history_lines) if history_lines else "없음"
+
+
 # ==================== Generator Node ====================
 
 def generate_technical_questions_node(state: TechnicalQuestionState) -> TechnicalQuestionState:
@@ -52,6 +75,23 @@ def generate_technical_questions_node(state: TechnicalQuestionState) -> Technica
     fixed_answers = state["fixed_answers"]
     company_info = state["company_info"]
     existing_jd = state["existing_jd"]
+    question_history = _format_question_history(fixed_answers, state.get("generated_questions"))
+
+    previous_failure_context = ""
+    if state["attempts"] > 0 and state.get("validation_errors"):
+        prev_questions = "\n".join(
+            f"{idx+1}. {q.question}"
+            for idx, q in enumerate(state.get("generated_questions") or [])
+        ) or "이전 생성 없음"
+        previous_failure_context = f"""
+**⚠️ 이전 시도 실패 이유:**
+{chr(10).join(f"- {err}" for err in state["validation_errors"])}
+
+**이전에 생성한 질문들 (사용 불가):**
+{prev_questions}
+
+위 실패 이유를 참고하여, 중복되지 않는 완전히 새로운 질문 3개를 생성하세요.
+"""
 
     # 1. 고정 질문 답변 포맷팅
     all_qa = "\n\n".join([
@@ -88,6 +128,13 @@ def generate_technical_questions_node(state: TechnicalQuestionState) -> Technica
         jd_context = f"\n[기존 Job Description]\n{existing_jd}\n"
 
     # 5. 프롬프트 구성 (기존과 동일)
+    general_summary_safe = _escape_curly(general_summary)
+    company_context_safe = _escape_curly(company_context)
+    jd_context_safe = _escape_curly(jd_context)
+    all_qa_safe = _escape_curly(all_qa)
+    question_history_safe = _escape_curly(question_history)
+    previous_failure_safe = _escape_curly(previous_failure_context)
+
     prompt = ChatPromptTemplate.from_messages([
         ("system", """당신은 인사팀 채용 담당자로, 공고(포지션)에 대한 정보를 자세히 파악하고자 실무진 부서와 인터뷰 중입니다.
 
@@ -115,7 +162,17 @@ def generate_technical_questions_node(state: TechnicalQuestionState) -> Technica
 - 질문 길이는 130자 이내로 간결하게 작성
 
 """),
-        ("user", f"{general_summary}\n{company_context}{jd_context}\n[Technical 고정 질문 답변]\n{all_qa}")
+        ("user", f"""{general_summary_safe}
+{company_context_safe}{jd_context_safe}
+[Technical 고정 질문 답변]
+{all_qa_safe}
+
+**이미 진행한 질문 목록(최대 8개, Qn은 참고용입니다):**
+{question_history_safe}
+{previous_failure_safe}
+
+→ 위 질문들과 동일/유사한 표현을 반복하지 말고, 새로운 follow-up 질문 3개를 생성하세요.
+""")
     ])
 
     # 6. LLM 호출
@@ -168,22 +225,24 @@ def validate_technical_questions_llm_node(state: TechnicalQuestionState) -> Tech
 [회사 정보]
 {company_info or '정보 없음'}
 """
+    context_summary_safe = _escape_curly(context_summary)
+    question_block_safe = _escape_curly(question_block)
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", """당신은 채용 담당자입니다. 아래 follow-up 질문들이 요구사항을 충족하는지 평가하세요.
 요구사항:
-1. 질문 수는 정확히 3개여야 하며, 각 질문은 서로 다른 핵심 주제를 다뤄야 합니다.
+1. 질문 수는 정확히 3개여야 합니다.
 2. 각 질문은 General/회사 정보/고정 답변에서 언급된 내용을 근거로 더 구체적인 정보를 끌어내야 합니다.
-3. 질문은 한글로 작성되고, 실무적인 맥락이 분명해야 합니다.
+3. 질문은 한글로 작성되고, 해당 회사 도메인 관련 내용인지 한 번 더 검토합니다.
 4. 중복 질문이나 모호한 질문이 있으면 안 됩니다.
 
 조건을 충족하지 않으면 is_valid=False로 두고 issues에 상세 이유를 적으세요.
 """),
         ("user", f"""
-{context_summary}
+{context_summary_safe}
 
 [생성된 질문들]
-{question_block}
+{question_block_safe}
 """)
     ])
 
@@ -204,6 +263,11 @@ def validate_technical_questions_llm_node(state: TechnicalQuestionState) -> Tech
         print("[Validator:LLM] ✅ Semantic validation passed")
     else:
         print(f"[Validator:LLM] ❌ Semantic validation failed: {state['validation_errors']}")
+        print("[Validator:LLM] Generated questions for review:")
+        for idx, q in enumerate(generated_questions, 1):
+            question_text = (q.question or "").strip()
+            purpose_text = getattr(q, "purpose", "") or ""
+            print(f"  {idx}. {question_text} | 목적: {purpose_text}")
 
     return state
 
@@ -254,7 +318,7 @@ def should_regenerate_technical(state: TechnicalQuestionState) -> Literal["regen
     - 검증 실패 + 최대 시도 횟수 미만: regenerate
     - 검증 실패 + 최대 시도 횟수 도달: finish (현재 질문 사용)
     """
-    max_attempts = 3
+    max_attempts = 5
 
     if state["is_valid"]:
         print("[Decision] Questions are valid. Finishing.")
@@ -263,7 +327,7 @@ def should_regenerate_technical(state: TechnicalQuestionState) -> Literal["regen
     if state["attempts"] >= max_attempts:
         print(f"[Decision] Max attempts ({max_attempts}) reached. Using current questions anyway.")
         # 최대 시도 횟수 도달 시 현재 질문으로 진행
-        state["final_questions"] = state["generated_questions"]
+        state["final_questions"] = state.get("generated_questions", [])
         return "finish"
 
     print(f"[Decision] Invalid. Regenerating... (attempt {state['attempts']}/{max_attempts})")
@@ -352,7 +416,7 @@ def generate_technical_dynamic_questions(
     print(f"\n{'='*60}")
     print(f"✅ Generation Complete!")
     print(f"Attempts: {final_state['attempts']}")
-    print(f"Final Questions: {len(final_state['final_questions'])}")
+    print(f"Final Questions: {len(final_state.get('final_questions') or [])}")
     print(f"Valid: {final_state['is_valid']}")
     print(f"{'='*60}\n")
 

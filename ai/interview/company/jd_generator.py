@@ -122,14 +122,40 @@ def create_job_posting_from_interview(
 
     result = (prompt | llm).invoke({})
 
-    # dict로 변환
     job_posting = result.model_dump()
 
-    # List[str] → str 변환 (백엔드 API 형식에 맞게)
-    job_posting["responsibilities"] = "\n".join([f"- {r}" for r in result.responsibilities])
-    job_posting["requirements_must"] = "\n".join([f"- {r}" for r in result.requirements_must])
-    job_posting["requirements_nice"] = "\n".join([f"- {r}" for r in result.requirements_nice])
-    job_posting["competencies"] = ", ".join(result.competencies)  # List → 문자열 변환
+    responsibilities_text = "\n".join([f"- {r}" for r in result.responsibilities])
+    requirements_must_text = "\n".join([f"- {r}" for r in result.requirements_must])
+    requirements_nice_text = "\n".join([f"- {r}" for r in result.requirements_nice])
+    competencies_text = ", ".join(result.competencies)
+
+    def fallback_value(field_name: str, generated: str, default_message: str) -> str:
+        if generated.strip():
+            return generated
+        if existing_jd and isinstance(existing_jd.get(field_name), str) and existing_jd.get(field_name).strip():
+            return existing_jd[field_name]
+        return default_message
+
+    job_posting["responsibilities"] = fallback_value(
+        "responsibilities",
+        responsibilities_text,
+        "- 인터뷰 답변이 부족하여 기존 JD 정보를 참고할 수 없습니다."
+    )
+    job_posting["requirements_must"] = fallback_value(
+        "requirements_must",
+        requirements_must_text,
+        "- 필수 요건 정보를 파악할 수 없어 기본 안내 문구로 대체되었습니다."
+    )
+    job_posting["requirements_nice"] = fallback_value(
+        "requirements_nice",
+        requirements_nice_text,
+        "- 우대 요건 정보를 파악할 수 없어 기본 안내 문구로 대체되었습니다."
+    )
+    job_posting["competencies"] = fallback_value(
+        "competencies",
+        competencies_text,
+        "정보 부족"
+    )
 
     # 4개 필드만 반환 (기존 JD에 덮어쓰기 용)
     return {

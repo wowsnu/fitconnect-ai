@@ -60,6 +60,22 @@ def generate_situational_deep_dive_question_node(state: TalentSituationalQuestio
         "communication": "커뮤니케이션"
     }
 
+    # 이전 시도 실패 이유 (첫 시도가 아닐 때만)
+    previous_failure_context = ""
+    if state["attempts"] > 0 and state.get("validation_errors"):
+        previous_failure_context = f"""
+**⚠️ 이전 시도 실패 이유:**
+{chr(10).join(f"- {err}" for err in state["validation_errors"])}
+
+**피드백:**
+{state.get("llm_feedback", "")}
+
+**이전에 생성한 질문 (사용 불가):**
+"{state.get("generated_question", "")}"
+
+👉 위 실패 이유를 참고하여 **다른 각도**로 접근하세요. 같은 주제나 유사한 상황을 반복하지 마세요.
+"""
+
     prompt = ChatPromptTemplate.from_messages([
         ("system", f"""당신은 인사팀 채용 담당자입니다.
 
@@ -67,6 +83,7 @@ def generate_situational_deep_dive_question_node(state: TalentSituationalQuestio
 
         이전 답변:
         {history_text}
+        {previous_failure_context}
 
         **심화 질문 생성 가이드:**
         - {dimension_map.get(dimension, dimension)} 차원에서 [{dominant_trait}] 성향을 더 깊이 확인
@@ -76,7 +93,7 @@ def generate_situational_deep_dive_question_node(state: TalentSituationalQuestio
         - 특정 직군에 국한되지 않는 범용적인 상황 질문
         - 인터뷰 대상자가 이해하기 쉽고 자연스러운 질문
         - 모든 질문을 한글로만 작성 (영어 질문 금지)
-        - **질문 길이는 130자 이내로 간결하게 작성** 
+        - **질문 길이는 130자 이내로 간결하게 작성**
 
         **예시:**
         - 주도형 → "팀이나 리더의 결정이 조직 목표와 맞지 않다고 느낄 때 어떻게 행동하시나요? 구체적인 사례를 들어 말씀해주세요."
@@ -143,7 +160,7 @@ def validate_situational_question_llm_node(state: TalentSituationalQuestionState
 
 조건:
 1. dominant_trait와 dimension을 명확히 겨냥해야 합니다.
-2. 이전 질문과 의미적으로 중복되면 안 됩니다.
+2. 이전 질문과 의미적으로 중복되면 안 됩니다. 
 3. 지원자의 실제 행동을 끌어낼 수 있는 구체적인 열린 질문이어야 합니다.
 4. 질문이 충분히 자연스럽고 특정 직군에 국한되지 않는 범용적인 상황으로 매끄럽게 작성되어야 합니다.
 
@@ -222,7 +239,7 @@ def should_regenerate_situational(state: TalentSituationalQuestionState) -> Lite
     - 검증 실패 + 최대 시도 횟수 미만: regenerate
     - 검증 실패 + 최대 시도 횟수 도달: finish (현재 질문 사용)
     """
-    max_attempts = 3
+    max_attempts = 5
 
     if state["is_valid"]:
         print("[Decision] Question is valid. Finishing.")

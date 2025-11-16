@@ -19,14 +19,32 @@ from config.settings import get_settings
 
 # ==================== State 정의 ====================
 
+def _format_question_list(all_questions: List[dict], limit: int = 7) -> str:
+    """LLM 프롬프트에 사용할 간단한 질문 목록"""
+    if not all_questions:
+        return "없음"
+
+    lines = []
+    for item in all_questions[-limit:]:
+        question = (item.get("question") or "").strip()
+        skill = item.get("skill") or ""
+        skill_label = f"[기술: {skill}]" if skill else "[기술 정보 없음]"
+        qnum = item.get("question_number")
+        if qnum:
+            skill_label += f" Q{qnum}"
+        lines.append(f"- {skill_label} {question}")
+    return "\n".join(lines)
+
+
 class TalentTechnicalQuestionState(TypedDict):
     """Talent Technical 동적 질문 생성 State"""
     # Input
     skill: str  # 평가할 기술
-    question_number: int  # 1, 2, 3
+    question_number: int  # 1, 2
     profile: CandidateProfile
     general_analysis: GeneralInterviewAnalysis
     previous_skill_answers: List[dict]  # 현재 기술의 이전 답변들
+    all_previous_questions: List[dict]  # 전체 기술 Q&A
 
     # Process
     generated_question: InterviewQuestion
@@ -54,6 +72,8 @@ def generate_talent_technical_question_node(state: TalentTechnicalQuestionState)
     profile = state["profile"]
     general_analysis = state["general_analysis"]
     previous_skill_answers = state["previous_skill_answers"] or []
+    all_previous_questions = state.get("all_previous_questions") or []
+    question_list_text = _format_question_list(all_previous_questions)
 
     # 이전 답변 정리
     prev_context = ""
@@ -67,6 +87,23 @@ def generate_talent_technical_question_node(state: TalentTechnicalQuestionState)
                 if depth_areas:
                     prev_context += f"[파고들 포인트] {', '.join(depth_areas)}\n"
 
+    # 이전 시도 실패 이유 (첫 시도가 아닐 때만)
+    previous_failure_context = ""
+    if state["attempts"] > 0 and state.get("validation_errors"):
+        previous_failure_context = f"""
+**⚠️ 이전 시도 실패 이유:**
+{chr(10).join(f"- {err}" for err in state["validation_errors"])}
+
+**피드백:**
+{state.get("llm_feedback", "")}
+
+**이전에 생성한 질문 (사용 불가):**
+질문: "{state.get("generated_question", {}).get("question", "") if isinstance(state.get("generated_question"), dict) else (state.get("generated_question").question if state.get("generated_question") else "")}"
+why: "{state.get("generated_question", {}).get("why", "") if isinstance(state.get("generated_question"), dict) else (state.get("generated_question").why if state.get("generated_question") else "")}"
+
+👉 위 실패 이유를 참고하여 **다른 각도**로 접근하세요. 같은 주제나 유사한 질문을 반복하지 마세요.
+"""
+
     # 질문 번호에 따른 가이드
     if question_number == 1:
         depth_guide = """**1번째 질문 (도입):**
@@ -75,21 +112,16 @@ def generate_talent_technical_question_node(state: TalentTechnicalQuestionState)
 - 예2: "디자인 프로젝트에서 사용자 피드백을 반영했다고 하셨는데, 구체적으로 어떤 과정을 거치셨나요?"
 - 지원자의 전반적인 역할, 경험에 대한 동기와 과정 탐색
 """
-    elif question_number == 2:
+    else:  # question_number == 2
         depth_guide = """**2번째 질문 (심화):**
-- 1번째 답변에서 언급한 경험에 대해 구체적인 사례나 방법을 더 깊이 탐구
-- 예1: 1번에서 "마케팅 캠페인 성과 분석"을 언급했다면 → "성과 측정 시 어떤 지표나 도구를 활용하셨나요?"
-- 예2: 1번에서 "Redis 캐싱"을 언급했다면 → "Redis 캐싱 전략을 구체적으로 어떻게 설계하셨나요?"
-- 실무 적용 과정, 문제 해결 접근법, 의사결정 근거 파악
-"""
-    else:  # question_number == 3
-        depth_guide = """**3번째 질문 (심층 확장):**
-- 앞선 답변(1, 2번)을 바탕으로 사고의 깊이, 확장성, 전이 능력을 탐색
+- 1번째 답변의 경험을 더 깊이 탐구하고, 사고의 깊이와 확장성 파악
 - 단순한 사례 회고가 아니라, '그 경험을 통해 무엇을 배웠고 이후 어떻게 적용했는가'를 끌어내는 단계
-- 예1: "그 경험을 통해 얻은 교훈이나 인사이트를 이후 다른 프로젝트에 어떻게 적용하셨나요?"
-- 예2: "만약 같은 상황이 다시 온다면, 어떤 부분을 다르게 접근하고 싶으신가요?"
-- 예3: "그 접근법을 선택한 이유가 있나요? 다른 아키텍처는 고려하지 않으셨나요?"
+- 예1: 1번에서 "마케팅 캠페인 성과 분석"을 언급했다면 → "성과 측정 시 어떤 지표나 도구를 활용하셨나요?"
+- 예2: "그 경험을 통해 얻은 교훈이나 인사이트를 이후 다른 프로젝트에 어떻게 적용하셨나요?"
+- 예3: "만약 같은 상황이 다시 온다면, 어떤 부분을 다르게 접근하고 싶으신가요?"
+- 예4: "그 접근법을 선택한 이유가 있나요? 다른 아키텍처는 고려하지 않으셨나요?"
 - 목표: 지원자의 사고 수준, 성장 가능성, 문제 재구조화 능력 파악
+- 실무 적용 과정, 문제 해결 접근법, 의사결정 근거 파악
 """
 
     # 프로필에서 정보 추출
@@ -154,11 +186,15 @@ def generate_talent_technical_question_node(state: TalentTechnicalQuestionState)
         **질문 생성 전략:**
         {depth_guide}
 
+        **번호 규칙:**
+        - question_number는 현재 기술 내 순번 (1=도입, 2=심화)입니다.
+
         **질문 원칙:**
         - 열린 질문 (지원자가 실제 경험을 말할 수 있도록 유도, 실무 중심의 구체적인 질문)
         - 사실 기반 질문 (프로필과 인터뷰 답변에 있는 내용만 사용하여 적절한 질문 생성, 제시되지 않은 경험을 만들어서 물어보지 말 것)
         - 추정 및 과장 금지 (언급되지 않은 내용을 만들어내지 말 것)
         - 유사 질문 금지 (의미없이 비슷한 질문을 하는 것은 지양)
+        - 아래 질문 목록(이미 사용한 질문)과 유사한 표현/주제를 그대로 반복하지 말 것
         - 추가 질문일 경우 이전 답변에서 언급된 내용을 바탕으로 더 구체적이고 깊이 있는 후속 질문을 생성
         - 모든 질문을 한글로만 작성 (영어 질문 금지)
         - **질문 길이는 130자 이내로 간결하게 작성** (핵심만 담아 명확하게 전달)
@@ -169,8 +205,14 @@ def generate_talent_technical_question_node(state: TalentTechnicalQuestionState)
         """),
         ("user", f"""
 현재 평가 기술: {skill}
-질문 번호: {question_number}/3
+질문 번호: {question_number}/2
 {prev_context}
+{previous_failure_context}
+
+**지금까지 사용한 질문 목록(최대 6개, 이미 진행한 질문입니다 / Qn은 해당 기술 내 순번):**
+{question_list_text}
+→ 위 질문을 반복하지 말고 다른 관점으로 질문하세요.
+→ 위 목록과 동일/유사한 질문을 반복하지 말고, 새로운 각도의 질문을 생성하세요.
 
 {skill}에 대한 {question_number}번째 질문을 생성하세요.
 """)
@@ -214,6 +256,8 @@ def validate_talent_technical_question_llm_node(state: TalentTechnicalQuestionSt
     skill = state["skill"]
     question_number = state["question_number"]
     previous_skill_answers = state.get("previous_skill_answers") or []
+    all_previous_questions = state.get("all_previous_questions") or []
+    question_list_text = _format_question_list(all_previous_questions)
 
     # 이전 질문 요약
     prev_summary = ""
@@ -229,8 +273,7 @@ def validate_talent_technical_question_llm_node(state: TalentTechnicalQuestionSt
 
     stage_intent = {
         1: "지원자의 배경/동기/대표 경험을 파악하는 도입 질문",
-        2: "이전 답변을 토대로 구체적인 방법과 판단 근거를 파고드는 심화 질문",
-        3: "배운 점, 전이 가능성, 다른 접근을 묻는 확장 질문"
+        2: "이전 답변을 토대로 구체적인 방법, 판단 근거, 배운 점, 전이 가능성을 파고드는 심화 질문"
     }.get(question_number, "일반적인 후속 질문")
 
     prompt = ChatPromptTemplate.from_messages([
@@ -238,7 +281,7 @@ def validate_talent_technical_question_llm_node(state: TalentTechnicalQuestionSt
 
 검증 기준:
 1. 질문이 지정된 기술(skill)을 명확히 언급하거나 해당 역량을 겨냥하는가?
-2. question_number에 맞는 인터뷰 의도를 충족하는가? (도입/심화/확장)
+2. question_number에 맞는 인터뷰 의도를 충족하는가? (도입/심화)
 3. 이전 질문과 중복되지 않고, 이전 답변을 자연스럽게 이어가는가?
 4. 질문이 충분히 구체적이며 지원자가 실제 경험을 설명할 수 있도록 구성되어 있는가?
 5. 'why' 설명이 질문 목적을 명확히 설명하는가?
@@ -257,6 +300,10 @@ is_valid가 False라면 issues에 이유를 구체적으로 나열하세요.""" 
 
 [Previous Q&A]
 {prev_summary}
+
+[Previously Asked Questions]
+{question_list_text}
+(위 질문들은 이미 사용된 히스토리이며, 각 Q번호는 해당 기술 내 순번입니다. 동일/유사 질문이면 issues에 명시하세요.)
 """)
     ])
 
@@ -330,7 +377,7 @@ def should_regenerate_talent_technical(state: TalentTechnicalQuestionState) -> L
     - 검증 실패 + 최대 시도 횟수 미만: regenerate
     - 검증 실패 + 최대 시도 횟수 도달: finish (현재 질문 사용)
     """
-    max_attempts = 3
+    max_attempts = 5
 
     if state["is_valid"]:
         print("[Decision] Question is valid. Finishing.")
@@ -339,7 +386,7 @@ def should_regenerate_talent_technical(state: TalentTechnicalQuestionState) -> L
     if state["attempts"] >= max_attempts:
         print(f"[Decision] Max attempts ({max_attempts}) reached. Using current question anyway.")
         # 최대 시도 횟수 도달 시 현재 질문으로 진행
-        state["final_question"] = state["generated_question"]
+        state["final_question"] = state.get("generated_question")
         return "finish"
 
     print(f"[Decision] Invalid. Regenerating... (attempt {state['attempts']}/{max_attempts})")
@@ -387,7 +434,8 @@ def generate_personalized_question_with_graph(
     question_number: int,
     profile: CandidateProfile,
     general_analysis: GeneralInterviewAnalysis,
-    previous_skill_answers: List[dict] = None
+    previous_skill_answers: List[dict] = None,
+    all_previous_questions: List[dict] = None,
 ) -> InterviewQuestion:
     """
     Talent Technical 개인화된 질문 생성 (LangGraph 기반)
@@ -416,6 +464,7 @@ def generate_personalized_question_with_graph(
         "profile": profile,
         "general_analysis": general_analysis,
         "previous_skill_answers": previous_skill_answers or [],
+        "all_previous_questions": all_previous_questions or [],
         "generated_question": None,
         "validation_errors": [],
         "attempts": 0,
@@ -428,11 +477,16 @@ def generate_personalized_question_with_graph(
     graph = create_talent_technical_question_graph()
     final_state = graph.invoke(initial_state)
 
+    final_question = final_state.get("final_question") or final_state.get("generated_question")
+    if not final_question:
+        raise RuntimeError("LangGraph 질문 생성에 실패했습니다. 생성된 질문이 없습니다.")
+    final_state["final_question"] = final_question
+
     print(f"\n{'='*60}")
     print(f"✅ Generation Complete!")
     print(f"Attempts: {final_state['attempts']}")
     print(f"Valid: {final_state['is_valid']}")
-    print(f"Question: {final_state['final_question'].question[:80]}...")
+    print(f"Question: {final_question.question[:80]}...")
     print(f"{'='*60}\n")
 
-    return final_state["final_question"]
+    return final_question

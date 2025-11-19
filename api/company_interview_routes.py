@@ -14,7 +14,7 @@ Company Interview API Routes
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from pydantic import BaseModel
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 import uuid
 from datetime import datetime
 
@@ -59,16 +59,18 @@ class CompanyInterviewSession:
         session_id: str,
         company_name: str,
         existing_jd: Optional[str] = None,
-        use_langgraph_for_questions: Optional[bool] = None
+        use_langgraph_for_questions: Optional[bool] = None,
+        is_team_review_mode: bool = False
     ):
         settings = get_settings()
         self.session_id = session_id
         self.company_name = company_name
         self.existing_jd = existing_jd
         self.company_info: Optional[dict] = None  # 기업 정보 (Technical에서 로드)
+        self.is_team_review_mode = is_team_review_mode  # 팀원 리뷰 모드 여부
 
-        # 면접 인스턴스
-        self.general_interview = CompanyGeneralInterview()
+        # 면접 인스턴스 (팀원 리뷰 모드에서는 사용 안함)
+        self.general_interview = CompanyGeneralInterview() if not is_team_review_mode else None
         self.technical_interview = None
         self.situational_interview = None
 
@@ -167,6 +169,34 @@ class GenerateCardRequest(BaseModel):
 class StartSituationalRequest(BaseModel):
     """Situational 면접 시작 요청"""
     session_id: str
+
+
+# ==================== Team Review Request/Response Models ====================
+
+class StartTeamReviewRequest(BaseModel):
+    """팀원 리뷰 세션 시작 요청"""
+    access_token: str
+    company_name: Optional[str] = None  # 선택: 없으면 백엔드에서 자동 로드
+
+
+class TeamReviewGeneralRequest(BaseModel):
+    """팀원 리뷰: 구조화 질문 제출 요청"""
+    session_id: str
+    general_answer: str  # 하나의 긴 텍스트 답변
+
+
+class MemberReview(BaseModel):
+    """팀원 1명의 리뷰"""
+    member_name: str
+    role: str  # 직책 (예: "시니어 개발자", "팀 리더")
+    job_fit_answer: str  # 직무적합성 답변
+    culture_fit_answer: str  # 문화적합성 답변
+
+
+class TeamReviewMembersRequest(BaseModel):
+    """팀원 리뷰: 팀원들의 직무+문화 답변 제출 요청"""
+    session_id: str
+    member_reviews: List[MemberReview]
 
 
 # ==================== General Interview APIs ====================
@@ -673,35 +703,56 @@ async def create_situational_analysis_with_jd(request: SituationalAnalysisReques
 
     session = company_sessions[request.session_id]
 
-    # 모든 면접 완료 확인
-    if not session.general_interview.is_finished():
-        raise HTTPException(status_code=400, detail="General interview not completed")
+    # 팀원 리뷰 모드 vs 기존 면접 모드 분기
+    if session.is_team_review_mode:
+        # 팀원 리뷰 모드: 분석 결과 존재 확인
+        if not session.general_analysis:
+            raise HTTPException(
+                status_code=400,
+                detail="General analysis not completed. Please call /team-review/general first"
+            )
+        if not session.technical_requirements:
+            raise HTTPException(
+                status_code=400,
+                detail="Technical requirements not completed. Please call /team-review/members first"
+            )
+        if not session.situational_profile:
+            raise HTTPException(
+                status_code=400,
+                detail="Team culture profile not completed. Please call /team-review/members first"
+            )
+        # 분석 결과가 이미 있으므로 추가 작업 불필요
 
-    if not session.technical_interview or not session.technical_interview.is_finished():
-        raise HTTPException(status_code=400, detail="Technical interview not completed")
+    else:
+        # 기존 면접 모드: 면접 완료 확인 및 분석
+        if not session.general_interview.is_finished():
+            raise HTTPException(status_code=400, detail="General interview not completed")
 
-    if not session.situational_interview or not session.situational_interview.is_finished():
-        raise HTTPException(status_code=400, detail="Situational interview not completed")
+        if not session.technical_interview or not session.technical_interview.is_finished():
+            raise HTTPException(status_code=400, detail="Technical interview not completed")
 
-    # 각 단계 분석 수행 (캐시 확인)
-    if not session.general_analysis:
-        answers = session.general_interview.get_answers()
-        session.general_analysis = analyze_company_general_interview(answers)
+        if not session.situational_interview or not session.situational_interview.is_finished():
+            raise HTTPException(status_code=400, detail="Situational interview not completed")
 
-    if not session.technical_requirements:
-        answers = session.technical_interview.get_answers()
-        session.technical_requirements = analyze_company_technical_interview(
-            answers=answers,
-            general_analysis=session.general_analysis
-        )
+        # 각 단계 분석 수행 (캐시 확인)
+        if not session.general_analysis:
+            answers = session.general_interview.get_answers()
+            session.general_analysis = analyze_company_general_interview(answers)
 
-    if not session.situational_profile:
-        answers = session.situational_interview.get_answers()
-        session.situational_profile = analyze_company_situational_interview(
-            answers=answers,
-            general_analysis=session.general_analysis,
-            technical_requirements=session.technical_requirements
-        )
+        if not session.technical_requirements:
+            answers = session.technical_interview.get_answers()
+            session.technical_requirements = analyze_company_technical_interview(
+                answers=answers,
+                general_analysis=session.general_analysis
+            )
+
+        if not session.situational_profile:
+            answers = session.situational_interview.get_answers()
+            session.situational_profile = analyze_company_situational_interview(
+                answers=answers,
+                general_analysis=session.general_analysis,
+                technical_requirements=session.technical_requirements
+            )
 
     # 기존 JD 가져오기 (필수)
     existing_jd = None
@@ -711,14 +762,17 @@ async def create_situational_analysis_with_jd(request: SituationalAnalysisReques
     try:
         from ai.interview.client import get_backend_client
         backend_client = get_backend_client()
+        print(f"[DEBUG] Fetching job posting {request.job_posting_id} from backend...")
         existing_jd = await backend_client.get_job_posting(
             job_posting_id=request.job_posting_id,
             access_token=request.access_token
         )
         print(f"[INFO] Loaded existing JD for job posting {request.job_posting_id}")
     except Exception as e:
-        print(f"[WARNING] Failed to load existing JD: {str(e)}")
-        raise HTTPException(status_code=404, detail="Existing job posting not found")
+        import traceback
+        print(f"[ERROR] Failed to load existing JD: {type(e).__name__}: {str(e)}")
+        print(f"[ERROR] Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=404, detail=f"Existing job posting not found: {str(e)}")
 
     # 면접 결과를 JD 데이터로 변환
     from ai.interview.company.jd_generator import create_job_posting_from_interview
@@ -975,26 +1029,39 @@ async def get_company_session_info(session_id: str):
 
     session = company_sessions[session_id]
 
-    return {
+    result = {
         "session_id": session_id,
         "company_name": session.company_name,
+        "is_team_review_mode": session.is_team_review_mode,
         "has_existing_jd": session.existing_jd is not None,
         "created_at": session.created_at.isoformat(),
-        "updated_at": session.updated_at.isoformat(),
-        "general": {
-            "current": session.general_interview.current_index,
-            "total": len(session.general_interview.questions),
-            "finished": session.general_interview.is_finished()
-        },
-        "technical": {
+        "updated_at": session.updated_at.isoformat()
+    }
+
+    # 팀원 리뷰 모드
+    if session.is_team_review_mode:
+        result["analysis_status"] = {
+            "general_analysis": session.general_analysis is not None,
+            "technical_requirements": session.technical_requirements is not None,
+            "team_culture_profile": session.situational_profile is not None
+        }
+    # 기존 면접 모드
+    else:
+        result["general"] = {
+            "current": session.general_interview.current_index if session.general_interview else 0,
+            "total": len(session.general_interview.questions) if session.general_interview else 0,
+            "finished": session.general_interview.is_finished() if session.general_interview else False
+        }
+        result["technical"] = {
             "started": session.technical_interview is not None,
             "finished": session.technical_interview.is_finished() if session.technical_interview else False
-        },
-        "situational": {
+        }
+        result["situational"] = {
             "started": session.situational_interview is not None,
             "finished": session.situational_interview.is_finished() if session.situational_interview else False
         }
-    }
+
+    return result
 
 
 @company_interview_router.delete("/session/{session_id}")
@@ -1011,3 +1078,181 @@ async def delete_company_session(session_id: str):
     del company_sessions[session_id]
 
     return {"message": "Session deleted successfully"}
+
+
+# ==================== Team Review APIs ====================
+
+@company_interview_router.post("/team-review/start")
+async def start_team_review_session(request: StartTeamReviewRequest):
+    """
+    팀원 리뷰 세션 시작
+
+    Args:
+        request: access_token, company_name (optional)
+
+    Returns:
+        session_id와 안내 메시지
+    """
+    # 회사명 가져오기
+    company_name = request.company_name
+    if not company_name:
+        try:
+            from ai.interview.client import get_backend_client
+
+            backend_client = get_backend_client()
+            company_profile = await backend_client.get_company_profile(
+                access_token=request.access_token
+            )
+            company_name = company_profile.get("basic", {}).get("name", "기업")
+            print(f"[INFO] Loaded company name from backend: {company_name}")
+        except Exception as e:
+            print(f"[WARNING] Failed to load company profile: {str(e)}")
+            company_name = "기업"
+
+    # 팀원 리뷰 모드로 세션 생성
+    session_id = str(uuid.uuid4())
+    session = CompanyInterviewSession(
+        session_id=session_id,
+        company_name=company_name,
+        is_team_review_mode=True
+    )
+    company_sessions[session_id] = session
+
+    # 기업 정보 로드 (나중에 JD/카드 생성 시 사용)
+    try:
+        from ai.interview.client import get_backend_client
+        backend_client = get_backend_client()
+        company_profile = await backend_client.get_company_profile(
+            access_token=request.access_token
+        )
+        session.company_info = company_profile
+        print(f"[INFO] Loaded company profile for team review session")
+    except Exception as e:
+        print(f"[WARNING] Failed to load company profile: {str(e)}")
+
+    return {
+        "session_id": session_id,
+        "company_name": company_name,
+        "message": "팀원 리뷰 세션이 시작되었습니다. 먼저 구조화 질문에 답변해주세요.",
+        "next_step": "POST /team-review/general"
+    }
+
+
+@company_interview_router.post("/team-review/general")
+async def submit_team_review_general(request: TeamReviewGeneralRequest):
+    """
+    팀원 리뷰: 구조화 질문 답변 제출 및 분석
+
+    Args:
+        request: session_id, general_answer
+
+    Returns:
+        CompanyGeneralAnalysis
+    """
+    # 세션 확인
+    if request.session_id not in company_sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = company_sessions[request.session_id]
+    session.updated_at = datetime.now()
+
+    # 팀원 리뷰 모드 확인
+    if not session.is_team_review_mode:
+        raise HTTPException(
+            status_code=400,
+            detail="This session is not in team review mode"
+        )
+
+    # 구조화 질문 분석
+    from ai.interview.company.team_review_analyzer import analyze_general_text_only
+
+    session.general_analysis = analyze_general_text_only(request.general_answer)
+
+    return {
+        "success": True,
+        "session_id": request.session_id,
+        "general_analysis": session.general_analysis,
+        "message": "구조화 질문 분석이 완료되었습니다. 다음으로 팀원 리뷰를 제출해주세요.",
+        "next_step": "POST /team-review/members"
+    }
+
+
+@company_interview_router.post("/team-review/members")
+async def submit_team_review_members(request: TeamReviewMembersRequest):
+    """
+    팀원 리뷰: 팀원들의 직무+문화 답변 제출 및 분석
+
+    Args:
+        request: session_id, member_reviews
+
+    Returns:
+        TechnicalRequirements + TeamCultureProfile
+    """
+    # 세션 확인
+    if request.session_id not in company_sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    session = company_sessions[request.session_id]
+    session.updated_at = datetime.now()
+
+    # 팀원 리뷰 모드 확인
+    if not session.is_team_review_mode:
+        raise HTTPException(
+            status_code=400,
+            detail="This session is not in team review mode"
+        )
+
+    # General 분석 완료 확인
+    if not session.general_analysis:
+        raise HTTPException(
+            status_code=400,
+            detail="General analysis must be completed first. Please call /team-review/general"
+        )
+
+    # 팀원 리뷰가 최소 1개 이상인지 확인
+    if not request.member_reviews or len(request.member_reviews) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one member review is required"
+        )
+
+    # 팀원 리뷰 데이터 변환
+    member_reviews_data = [
+        {
+            "member_name": m.member_name,
+            "role": m.role,
+            "job_fit_answer": m.job_fit_answer,
+            "culture_fit_answer": m.culture_fit_answer
+        }
+        for m in request.member_reviews
+    ]
+
+    # 직무적합성 분석
+    from ai.interview.company.team_review_analyzer import (
+        analyze_team_review_technical,
+        analyze_team_review_culture
+    )
+
+    print(f"[INFO] Analyzing technical requirements from {len(member_reviews_data)} team members...")
+    session.technical_requirements = analyze_team_review_technical(
+        member_reviews=member_reviews_data,
+        general_analysis=session.general_analysis
+    )
+
+    # 문화적합성 분석
+    print(f"[INFO] Analyzing team culture profile from {len(member_reviews_data)} team members...")
+    session.situational_profile = analyze_team_review_culture(
+        member_reviews=member_reviews_data,
+        general_analysis=session.general_analysis,
+        technical_requirements=session.technical_requirements
+    )
+
+    return {
+        "success": True,
+        "session_id": request.session_id,
+        "member_count": len(member_reviews_data),
+        "technical_requirements": session.technical_requirements,
+        "team_culture_profile": session.situational_profile,
+        "message": "팀원 리뷰 분석이 완료되었습니다. 이제 JD를 생성할 수 있습니다.",
+        "next_step": "POST /situational/analysis (기존 API 재사용)"
+    }

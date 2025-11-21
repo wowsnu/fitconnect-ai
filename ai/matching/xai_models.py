@@ -6,7 +6,7 @@ Two-stage explanation generation:
 - Stage 2: UI-level aggregation (3 categories)
 """
 
-from typing import List, Literal, Optional
+from typing import List, Literal
 from pydantic import BaseModel, Field
 
 
@@ -115,39 +115,15 @@ class Stage2CategoryResult(BaseModel):
 # ==================== API Request/Response ====================
 
 class MatchExplainRequest(BaseModel):
-    """Request for generating match explanation"""
+    """Request for generating match explanation (minimal form)"""
     
-    talent_id: Optional[int] = Field(
-        None,
-        description="Talent user ID (for caching)"
-    )
-    talent_user_id: Optional[int] = Field(
-        None,
-        description="Alias of talent_id (external naming)"
-    )
-    jd_id: Optional[int] = Field(
-        None,
-        description="Job description ID (for caching)"
-    )
-    job_posting_id: Optional[int] = Field(
-        None,
-        description="Alias of jd_id (external naming)"
-    )
-    talent_summaries: List[FieldSummary] = Field(
+    talent_user_id: int = Field(
         ...,
-        min_items=6,
-        max_items=6,
-        description="Talent field summaries (must contain all 6 fields)"
+        description="Talent user ID"
     )
-    job_summaries: List[FieldSummary] = Field(
+    job_posting_id: int = Field(
         ...,
-        min_items=6,
-        max_items=6,
-        description="Job field summaries (must contain all 6 fields)"
-    )
-    field_similarity_scores: dict[str, float] = Field(
-        ...,
-        description="Cosine similarity scores per field (keys: roles, skills, growth, career, vision, culture)"
+        description="Job posting ID"
     )
 
 

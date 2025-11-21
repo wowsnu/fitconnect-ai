@@ -15,6 +15,45 @@ from config.settings import get_settings
 logger = logging.getLogger(__name__)
 
 
+async def fetch_cache_from_backend(
+    talent_id: int,
+    jd_id: int,
+) -> Optional[Dict[str, Any]]:
+    """
+    Try to fetch cached XAI result from backend.
+    Returns response_json dict on hit, or None on miss/error.
+    """
+    settings = get_settings()
+    url = f"{settings.BACKEND_API_URL.rstrip('/')}/internal/xai/match-cache"
+    params = {"talent_id": talent_id, "jd_id": jd_id}
+
+    try:
+        timeout = httpx.Timeout(connect=5.0, read=10.0, write=10.0, pool=5.0)
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            resp = await client.get(url, params=params)
+            if resp.status_code == 404:
+                return None
+            if resp.status_code != 200:
+                logger.warning(f"[XAI] Cache GET failed {resp.status_code}: {resp.text}")
+                return None
+
+            data = resp.json()
+            # Accept flexible response shapes: {response_json: {...}} or {data: {...}} etc.
+            candidate = data.get("data", data)
+            response_json = (
+                candidate.get("response_json")
+                or candidate.get("response")
+                or candidate.get("final_explanation")
+            )
+            if response_json:
+                logger.info(f"[XAI] Cache hit from backend (talent_id={talent_id}, jd_id={jd_id})")
+                return response_json
+            return None
+    except Exception as e:
+        logger.warning(f"[XAI] Cache GET exception: {e}")
+        return None
+
+
 def build_cache_payload(
     talent_id: int,
     jd_id: int,

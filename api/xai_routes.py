@@ -6,7 +6,7 @@ using LangGraph pipeline (summary-based, no RAG).
 """
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
@@ -14,7 +14,10 @@ from ai.matching.xai_models import (
     MatchExplainRequest,
     Stage2CategoryResult
 )
-from ai.matching.xai_cache import save_cache_to_backend
+from ai.matching.xai_cache import (
+    save_cache_to_backend,
+    fetch_cache_from_backend
+)
 from ai.matching.xai_graph import generate_match_explanation
 
 
@@ -34,105 +37,79 @@ class MatchExplainResponse(BaseModel):
     metadata: Dict[str, Any]
 
 
-# ==================== Placeholder Data Loaders ====================
+def map_compare_to_xai_inputs(compare_data: Dict[str, Any]) -> Tuple[Dict[str, str], Dict[str, str], Dict[str, float]]:
+    """
+    Convert /api/public/matching/compare response to XAI pipeline inputs.
+    """
+    field_map = {
+        "vector_roles": "roles",
+        "vector_skills": "skills",
+        "vector_growth": "growth",
+        "vector_career": "career",
+        "vector_vision": "vision",
+        "vector_culture": "culture",
+    }
+    field_scores = compare_data.get("field_scores", {})
 
-def get_talent_summaries(request: MatchExplainRequest) -> Dict[str, str]:
-    """
-    Load talent field summaries from request
-    
-    TODO: Replace with actual database/service call
-    
-    Args:
-        request: MatchExplainRequest with talent_summaries
-    
-    Returns:
-        Dict mapping field names to summaries
-    """
-    summaries = {}
-    for field_summary in request.talent_summaries:
-        summaries[field_summary.field] = field_summary.summary
-    
-    # Validate all 6 fields present
-    expected_fields = {"roles", "skills", "growth", "career", "vision", "culture"}
-    actual_fields = set(summaries.keys())
-    
-    if actual_fields != expected_fields:
-        missing = expected_fields - actual_fields
-        extra = actual_fields - expected_fields
-        raise ValueError(
-            f"Invalid talent summaries. Missing: {missing}, Extra: {extra}"
+    talent_summaries: Dict[str, str] = {}
+    job_summaries: Dict[str, str] = {}
+    similarity_scores: Dict[str, float] = {}
+
+    missing = []
+    for key, normalized in field_map.items():
+        entry = field_scores.get(key)
+        if not entry:
+            missing.append(key)
+            continue
+        similarity = entry.get("score", 0.0) / 100.0  # score is 0-100
+        similarity_scores[normalized] = max(0.0, min(1.0, similarity))
+        talent_summaries[normalized] = entry.get("talent_text") or ""
+        job_summaries[normalized] = entry.get("job_posting_text") or ""
+
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Missing field_scores keys in compare API: {missing}"
         )
-    
-    logger.info(f"Loaded talent summaries for fields: {list(summaries.keys())}")
-    return summaries
+    return talent_summaries, job_summaries, similarity_scores
 
 
-def get_job_summaries(request: MatchExplainRequest) -> Dict[str, str]:
+async def fetch_compare_data(talent_user_id: int, job_posting_id: int) -> Dict[str, Any]:
     """
-    Load job field summaries from request
-    
-    TODO: Replace with actual database/service call
-    
-    Args:
-        request: MatchExplainRequest with job_summaries
-    
-    Returns:
-        Dict mapping field names to summaries
+    Call backend compare API to retrieve vectors/scores/texts.
     """
-    summaries = {}
-    for field_summary in request.job_summaries:
-        summaries[field_summary.field] = field_summary.summary
-    
-    # Validate all 6 fields present
-    expected_fields = {"roles", "skills", "growth", "career", "vision", "culture"}
-    actual_fields = set(summaries.keys())
-    
-    if actual_fields != expected_fields:
-        missing = expected_fields - actual_fields
-        extra = actual_fields - expected_fields
-        raise ValueError(
-            f"Invalid job summaries. Missing: {missing}, Extra: {extra}"
-        )
-    
-    logger.info(f"Loaded job summaries for fields: {list(summaries.keys())}")
-    return summaries
+    from config.settings import get_settings
+    import httpx
 
+    settings = get_settings()
+    url = (
+        f"{settings.BACKEND_API_URL.rstrip('/')}/api/public/matching/compare"
+    )
+    params = {
+        "talent_user_id": talent_user_id,
+        "job_posting_id": job_posting_id,
+    }
 
-def get_similarity_scores(request: MatchExplainRequest) -> Dict[str, float]:
-    """
-    Load field similarity scores from request
-    
-    TODO: Replace with actual similarity computation service
-    
-    Args:
-        request: MatchExplainRequest with similarity_scores
-    
-    Returns:
-        Dict mapping field names to cosine similarity scores
-    """
-    scores = request.field_similarity_scores
-    
-    # Validate all 6 fields present
-    expected_fields = {"roles", "skills", "growth", "career", "vision", "culture"}
-    actual_fields = set(scores.keys())
-    
-    if actual_fields != expected_fields:
-        missing = expected_fields - actual_fields
-        extra = actual_fields - expected_fields
-        raise ValueError(
-            f"Invalid similarity scores. Missing: {missing}, Extra: {extra}"
-        )
-    
-    # Validate score ranges
-    for field, score in scores.items():
-        if not (0.0 <= score <= 1.0):
-            raise ValueError(
-                f"Invalid similarity score for field '{field}': {score} "
-                f"(must be between 0.0 and 1.0)"
+    timeout = httpx.Timeout(connect=10.0, read=20.0, write=20.0, pool=10.0)
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        resp = await client.get(url, params=params)
+        if resp.status_code == 404:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Talent or job posting vectors not found"
             )
-    
-    logger.info(f"Loaded similarity scores: {scores}")
-    return scores
+        if resp.status_code != 200:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Compare API failed: {resp.status_code} {resp.text}"
+            )
+        data = resp.json()
+        if not data.get("ok"):
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Compare API returned ok=false: {data}"
+            )
+        return data.get("data") or {}
 
 
 def validate_request(request: MatchExplainRequest) -> None:
@@ -146,35 +123,10 @@ def validate_request(request: MatchExplainRequest) -> None:
         HTTPException: If validation fails
     """
     try:
-        # Validate field counts
-        if len(request.talent_summaries) != 6:
-            raise ValueError(
-                f"Expected 6 talent summaries, got {len(request.talent_summaries)}"
-            )
-        
-        if len(request.job_summaries) != 6:
-            raise ValueError(
-                f"Expected 6 job summaries, got {len(request.job_summaries)}"
-            )
-        
-        if len(request.field_similarity_scores) != 6:
-            raise ValueError(
-                f"Expected 6 similarity scores, got {len(request.field_similarity_scores)}"
-            )
-        
-        # Validate field names consistency
-        talent_fields = {fs.field for fs in request.talent_summaries}
-        job_fields = {fs.field for fs in request.job_summaries}
-        score_fields = set(request.field_similarity_scores.keys())
-        
-        if talent_fields != job_fields or talent_fields != score_fields:
-            raise ValueError(
-                f"Field mismatch. Talent: {talent_fields}, "
-                f"Job: {job_fields}, Scores: {score_fields}"
-            )
-        
-        # (요약 길이 검증 제거) summary는 아무 길이도 허용
-        
+        if not request.talent_user_id:
+            raise ValueError("talent_user_id가 필요합니다.")
+        if not request.job_posting_id:
+            raise ValueError("job_posting_id가 필요합니다.")
         logger.info("Request validation passed")
         
     except ValueError as e:
@@ -190,32 +142,14 @@ def validate_request(request: MatchExplainRequest) -> None:
 @xai_router.post("/explain", response_model=MatchExplainResponse)
 async def explain_match(request: MatchExplainRequest) -> MatchExplainResponse:
     """
-    Generate XAI explanation for talent-job match
-    
-    This endpoint orchestrates a two-stage XAI generation pipeline:
-    1. Stage 1: Field-level analysis (6 fields using summaries + similarity scores)
-    2. Stage 2: Category-level aggregation (3 UI categories)
-    
-    Args:
-        request: MatchExplainRequest containing:
-            - talent_summaries: 6 field summaries (500-700 chars each)
-            - job_summaries: 6 field summaries (500-700 chars each)
-            - field_similarity_scores: 6 cosine similarity scores
-    
-    Returns:
-        MatchExplainResponse with 3 category explanations:
-            - job_fit (직무 적합성): roles + skills
-            - growth_potential (성장 가능성): growth + career + vision
-            - culture_fit (문화 적합성): culture
-    
-    Raises:
-        HTTPException: If validation fails or pipeline execution fails
+    Talent-JD XAI 생성 API (최소 입력)
+
+    필요한 입력: `talent_user_id`, `job_posting_id` 두 필드만 포함.
+    - 백엔드 캐시(`/internal/xai/match-cache`)를 먼저 확인
+    - 캐시 미스 시 compare API(`/api/public/matching/compare`)로 요약/점수 조회 후 LangGraph 실행
+    - 실행 결과를 캐시에 저장해 이후 요청 가속
     """
-    logger.info(
-        f"[XAI] Received match explanation request with "
-        f"{len(request.talent_summaries)} talent summaries, "
-        f"{len(request.job_summaries)} job summaries"
-    )
+    logger.info("[XAI] Received match explanation request (IDs only flow)")
     
     import json
     import os
@@ -224,16 +158,23 @@ async def explain_match(request: MatchExplainRequest) -> MatchExplainResponse:
         # Step 1: Validate request
         validate_request(request)
 
-        # Step 2: Load summaries
-        talent_summaries = get_talent_summaries(request)
-        job_summaries = get_job_summaries(request)
-        
-        # Step 3: Load similarity scores
-        similarity_scores = get_similarity_scores(request)
-        
-        logger.info(
-            f"[XAI] Starting XAI pipeline with {len(talent_summaries)} fields"
+        cache_talent_id = request.talent_user_id
+        cache_jd_id = request.job_posting_id
+
+        # Step 2: Try backend cache (frontend도 GET 하지만 백업으로 확인)
+        if cache_talent_id is not None and cache_jd_id is not None:
+            cached = await fetch_cache_from_backend(cache_talent_id, cache_jd_id)
+            if cached:
+                return MatchExplainResponse(**cached)
+
+        # Step 3: Fetch from compare API
+        compare_data = await fetch_compare_data(
+            talent_user_id=cache_talent_id,
+            job_posting_id=cache_jd_id
         )
+        talent_summaries, job_summaries, similarity_scores = map_compare_to_xai_inputs(compare_data)
+        
+        logger.info("[XAI] Starting XAI pipeline with fetched/normalized inputs")
         
         # Step 4: Execute LangGraph pipeline
         final_explanation = generate_match_explanation(
@@ -260,8 +201,8 @@ async def explain_match(request: MatchExplainRequest) -> MatchExplainResponse:
         )
 
         # Step 5.5: Save cache to backend (best-effort)
-        cache_talent_id = request.talent_user_id or request.talent_id
-        cache_jd_id = request.job_posting_id or request.jd_id
+        cache_talent_id = request.talent_user_id
+        cache_jd_id = request.job_posting_id
         if cache_talent_id is not None and cache_jd_id is not None:
             try:
                 await save_cache_to_backend(
@@ -329,71 +270,40 @@ async def explain_match_mock() -> MatchExplainResponse:
     """
     logger.info("[XAI] Mock endpoint called")
     
-    # Create mock request with sample data
-    from ai.matching.xai_models import FieldSummary
-    
-    mock_request = MatchExplainRequest(
-        talent_summaries=[
-            FieldSummary(
-                field="roles",
-                summary="Software engineer with 5 years of experience in backend development, specializing in microservices architecture and API design. Led multiple projects involving RESTful API development and database optimization. Strong background in Python and Node.js with experience in cloud platforms like AWS and GCP. Proven track record of delivering scalable solutions for high-traffic applications. Interested in technical leadership roles that combine hands-on coding with system architecture design."
-            ),
-            FieldSummary(
-                field="skills",
-                summary="Technical skills include Python, Java, Node.js, Docker, Kubernetes, PostgreSQL, MongoDB, Redis, AWS (EC2, S3, Lambda), and CI/CD pipelines. Proficient in designing RESTful APIs, implementing microservices, and optimizing database queries. Experience with agile methodologies, code reviews, and technical documentation. Soft skills include team collaboration, mentoring junior developers, and effective communication with stakeholders across technical and non-technical teams."
-            ),
-            FieldSummary(
-                field="growth",
-                summary="Seeking opportunities to grow into a senior technical leadership role, focusing on system architecture and technical strategy. Interested in learning more about distributed systems, cloud-native technologies, and DevOps practices. Currently pursuing cloud certifications and studying advanced system design patterns. Eager to contribute to open-source projects and share knowledge through tech blogs and conference talks. Looking for a role that offers mentorship opportunities and exposure to cutting-edge technologies."
-            ),
-            FieldSummary(
-                field="career",
-                summary="Career progression from junior developer to senior engineer over 5 years, consistently taking on more complex projects and technical challenges. Previously worked at a startup where gained broad experience across the full stack. Transitioned to a larger company to deepen expertise in backend systems and learn enterprise-scale architecture. Achievements include reducing API latency by 40%, implementing automated testing that caught 95% of bugs pre-production, and mentoring 3 junior developers who were promoted within a year."
-            ),
-            FieldSummary(
-                field="vision",
-                summary="Vision is to become a technical architect who can bridge the gap between business needs and technical solutions. Passionate about building systems that are not only technically sound but also deliver real value to users. Believes in continuous learning and knowledge sharing as key to professional growth. Long-term goal is to contribute to the tech community through open-source projects, technical writing, and mentoring the next generation of engineers. Values innovation, collaboration, and a culture of excellence."
-            ),
-            FieldSummary(
-                field="culture",
-                summary="Thrives in collaborative environments with strong engineering culture and emphasis on code quality. Prefers flat hierarchies where ideas are valued over titles. Appreciates companies that invest in employee growth through training, conferences, and learning budgets. Values work-life balance and flexible working arrangements. Seeks a culture of transparency, open communication, and psychological safety where team members can share ideas and learn from failures. Believes in the importance of diversity and inclusion in building better products."
-            )
-        ],
-        job_summaries=[
-            FieldSummary(
-                field="roles",
-                summary="Senior Backend Engineer role responsible for designing and implementing scalable microservices for our e-commerce platform. Will lead technical initiatives, mentor junior engineers, and collaborate with product managers to translate business requirements into technical solutions. Expected to drive architectural decisions, establish coding standards, and ensure system reliability. Must have strong experience in backend development, API design, and distributed systems. This role combines hands-on development (70%) with technical leadership (30%)."
-            ),
-            FieldSummary(
-                field="skills",
-                summary="Required skills: 5+ years of backend development experience with Python or Java, strong understanding of microservices architecture, RESTful API design, and database management (SQL and NoSQL). Must be proficient with cloud platforms (AWS preferred), containerization (Docker, Kubernetes), and CI/CD pipelines. Experience with high-traffic systems, performance optimization, and monitoring tools. Strong communication skills for collaborating with cross-functional teams and technical documentation."
-            ),
-            FieldSummary(
-                field="growth",
-                summary="This role offers clear growth path to Principal Engineer or Engineering Manager positions. We provide annual learning budgets for conferences, courses, and certifications. Engineers are encouraged to dedicate 10% of their time to learning and innovation projects. Opportunities to work on cutting-edge technologies including cloud-native architectures, serverless computing, and event-driven systems. Regular tech talks, internal workshops, and mentorship programs to support continuous professional development."
-            ),
-            FieldSummary(
-                field="career",
-                summary="We're looking for someone who has demonstrated consistent career growth and increasing technical responsibility. Ideal candidate has progressed from individual contributor to taking on more complex projects and mentoring responsibilities. Track record of delivering high-quality, scalable solutions and driving technical excellence. Ability to balance hands-on coding with strategic thinking and technical leadership. Previous experience in fast-paced, agile environments with a focus on continuous delivery and iterative development."
-            ),
-            FieldSummary(
-                field="vision",
-                summary="Join a company that's building the next generation of e-commerce technology. We're reimagining how millions of people shop online by creating seamless, personalized experiences powered by cutting-edge technology. Our technical vision focuses on scalability, reliability, and innovation. We value engineers who think beyond code to understand user impact and business value. Looking for team members who are passionate about technical excellence and excited to shape the future of online retail through technology."
-            ),
-            FieldSummary(
-                field="culture",
-                summary="We foster a culture of collaboration, innovation, and continuous improvement. Our engineering teams follow agile practices with emphasis on code quality, peer reviews, and knowledge sharing. We believe in flat organizational structure where the best ideas win regardless of seniority. Strong focus on work-life balance with flexible hours and remote work options. Regular team events, hackathons, and social activities to build community. We're committed to diversity, equity, and inclusion, creating an environment where everyone can thrive and do their best work."
-            )
-        ],
-        field_similarity_scores={
-            "roles": 0.92,
-            "skills": 0.89,
-            "growth": 0.87,
-            "career": 0.91,
-            "vision": 0.85,
-            "culture": 0.88
-        }
+    talent_summaries = {
+        "roles": "백엔드 개발 5년, 마이크로서비스/REST API 설계 경험 다수.",
+        "skills": "Python, Node.js, Docker, Kubernetes, PostgreSQL, AWS 경험 풍부.",
+        "growth": "시스템 아키텍트로 성장 희망, 분산시스템/클라우드 학습 중.",
+        "career": "스타트업/대기업 모두 경험, 성능 최적화/테스트 자동화 주도.",
+        "vision": "비즈니스 임팩트 있는 기술 리더십 지향, 지식 공유/멘토링 선호.",
+        "culture": "수평적 문화, 코드 품질·투명한 커뮤니케이션 중시."
+    }
+    job_summaries = {
+        "roles": "이커머스 백엔드 마이크로서비스 설계·구현, 기술 이니셔티브 리드.",
+        "skills": "Python/Java, REST API, SQL/NoSQL, AWS, Docker/K8s, 고트래픽 최적화.",
+        "growth": "Principal/EM 성장 트랙, 학습 예산·신기술 프로젝트 제공.",
+        "career": "점진적 책임 확대 및 멘토링 경험 선호, 기술적 우수성 요구.",
+        "vision": "다음 세대 이커머스 플랫폼 구축, 확장성·신뢰성·혁신 중시.",
+        "culture": "애자일, 코드 리뷰, 지식 공유, 워라밸·DEI 중시."
+    }
+    similarity_scores = {
+        "roles": 0.92,
+        "skills": 0.89,
+        "growth": 0.87,
+        "career": 0.91,
+        "vision": 0.85,
+        "culture": 0.88
+    }
+
+    final_explanation = generate_match_explanation(
+        talent_summaries=talent_summaries,
+        job_summaries=job_summaries,
+        similarity_scores=similarity_scores
     )
-    
-    # Use the actual pipeline with mock data
-    return await explain_match(mock_request)
+
+    return MatchExplainResponse(
+        job_fit=final_explanation.get("직무 적합성", {}),
+        growth_potential=final_explanation.get("성장 가능성", {}),
+        culture_fit=final_explanation.get("문화 적합성", {}),
+        metadata=final_explanation.get("metadata", {})
+    )

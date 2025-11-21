@@ -14,6 +14,11 @@ from ai.matching.xai_models import (
     MatchExplainRequest,
     Stage2CategoryResult
 )
+from ai.matching.xai_cache import (
+    compute_request_hash,
+    get_cached_response,
+    upsert_cached_response
+)
 from ai.matching.xai_graph import generate_match_explanation
 
 
@@ -172,20 +177,7 @@ def validate_request(request: MatchExplainRequest) -> None:
                 f"Job: {job_fields}, Scores: {score_fields}"
             )
         
-        # Validate summary lengths
-        for fs in request.talent_summaries:
-            if not (500 <= len(fs.summary) <= 700):
-                raise ValueError(
-                    f"Talent summary for field '{fs.field}' must be 500-700 chars "
-                    f"(got {len(fs.summary)})"
-                )
-        
-        for fs in request.job_summaries:
-            if not (500 <= len(fs.summary) <= 700):
-                raise ValueError(
-                    f"Job summary for field '{fs.field}' must be 500-700 chars "
-                    f"(got {len(fs.summary)})"
-                )
+        # (요약 길이 검증 제거) summary는 아무 길이도 허용
         
         logger.info("Request validation passed")
         
@@ -229,9 +221,34 @@ async def explain_match(request: MatchExplainRequest) -> MatchExplainResponse:
         f"{len(request.job_summaries)} job summaries"
     )
     
+    import json
+    import os
+    from datetime import datetime
     try:
         # Step 1: Validate request
         validate_request(request)
+
+        # Step 1.5: Cache lookup (if identifiers provided)
+        cache_talent_id = request.talent_user_id or request.talent_id
+        cache_jd_id = request.job_posting_id or request.jd_id
+        cache_enabled = cache_talent_id is not None and cache_jd_id is not None
+        cached_response = None
+        request_hash = None
+        if cache_enabled:
+            request_hash = compute_request_hash(request.dict())
+            cached_response = get_cached_response(
+                talent_id=cache_talent_id,
+                jd_id=cache_jd_id,
+                request_hash=request_hash
+            )
+            if cached_response:
+                logger.info(
+                    f"[XAI] Cache hit for talent_id={cache_talent_id}, jd_id={cache_jd_id}"
+                )
+                return MatchExplainResponse(**cached_response)
+            logger.info(
+                f"[XAI] Cache miss for talent_id={cache_talent_id}, jd_id={cache_jd_id}"
+            )
         
         # Step 2: Load summaries
         talent_summaries = get_talent_summaries(request)
@@ -245,9 +262,6 @@ async def explain_match(request: MatchExplainRequest) -> MatchExplainResponse:
         )
         
         # Step 4: Execute LangGraph pipeline
-        # This runs:
-        # - Stage 1: 6 field-level analyses using summaries + similarity scores
-        # - Stage 2: 3 category-level aggregations
         final_explanation = generate_match_explanation(
             talent_summaries=talent_summaries,
             job_summaries=job_summaries,
@@ -270,7 +284,31 @@ async def explain_match(request: MatchExplainRequest) -> MatchExplainResponse:
             f"growth_potential={bool(response.growth_potential)}, "
             f"culture_fit={bool(response.culture_fit)}"
         )
-        
+
+        # Step 5.5: Save cache (best-effort)
+        try:
+            if cache_enabled and request_hash:
+                upsert_cached_response(
+                    talent_id=cache_talent_id,
+                    jd_id=cache_jd_id,
+                    request_hash=request_hash,
+                    response=response.dict()
+                )
+                logger.info(
+                    f"[XAI] Cached response for talent_id={cache_talent_id}, jd_id={cache_jd_id}"
+                )
+        except Exception as cache_error:
+            logger.warning(f"[XAI] Failed to cache response: {cache_error}")
+
+        # Step 6: Save request/response to file (simple example)
+        save_dir = "xai_logs"
+        os.makedirs(save_dir, exist_ok=True)
+        now = datetime.now().strftime("%Y%m%d_%H%M%S")
+        with open(os.path.join(save_dir, f"xai_{now}.json"), "w", encoding="utf-8") as f:
+            json.dump({
+                "request": request.dict(),
+                "response": response.dict()
+            }, f, ensure_ascii=False, indent=2)
         return response
         
     except ValueError as e:

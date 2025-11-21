@@ -1,0 +1,106 @@
+{
+  "request": {
+    "talent_summaries": [
+      {
+        "field": "roles",
+        "summary": "박리액트는 4년간 토스에서 프론트엔드 개발자로 근무하며 React 기반 금융 서비스 웹 및 앱 개발에 주력했습니다. 이 기간 동안 그는 금융 서비스의 사용자 경험을 개선하기 위해 React와 TypeScript를 활용하여 다양한 프로젝트를 성공적으로 수행했습니다. 특히, React 고급 패턴과 성능 최적화 기법을 적용하여 웹 애플리케이션의 성능을 크게 향상시켰습니다. 그는 팀 내에서 코드 품질을 높이기 위해 코드 리뷰와 린터 도구를 적극 활용했으며, 사용자 편의성을 최우선으로 고려한 우선순위 결정을 통해 프로젝트의 성공에 기여했습니다. 이러한 경험은 그가 프론트엔드 개발 직무에서 요구되는 핵심 역할을 수행하는 데 있어 높은 적합성을 보입니다."
+      },
+      {
+        "field": "skills",
+        "summary": "박리액트는 React, Redux, TypeScript, Chart.js 등 다양한 기술 스택을 활용하여 프론트엔드 개발을 수행하는 데 강점을 보입니다. 그는 특히 React와 TypeScript를 활용한 실무 경험이 풍부하며, 성능 최적화에 대한 깊은 이해와 적용 경험을 갖추고 있습니다. 또한, 팀 협업과 코드 품질 관리 능력을 통해 팀의 역량을 강화하고 있습니다. 그는 프론트엔드 스터디를 리딩하며 지식 공유에 적극적이며, 사용자 경험 중심의 의사결정을 통해 프로젝트의 성공을 이끌어왔습니다. 이러한 기술과 소프트 스킬은 그가 프론트엔드 개발 직무에서 뛰어난 역량을 발휘할 수 있음을 보여줍니다."
+      },
+      {
+        "field": "growth",
+        "summary": "박리액트는 프론트엔드 스터디를 리딩하며 React 고급 패턴과 성능 최적화에 대한 지식을 팀과 공유하고, 이를 통해 팀의 역량을 강화하는 데 기여했습니다. 그는 새로운 기술을 배우고 적용하는 데 적극적이며, TypeScript를 통한 정적 타이핑과 코드 안정성 확보에 주력하고 있습니다. 이러한 학습 성향은 그가 새로운 기술과 분야를 수용하고 성장할 수 있는 잠재력을 보여줍니다. 특히, 금융 서비스 특화 UI/UX 구현 및 반응형 디자인 적용 경험은 그가 다양한 산업에서 경력을 확장할 수 있는 가능성을 제시합니다."
+      },
+      {
+        "field": "career",
+        "summary": "박리액트는 현재 프론트엔드 개발자로서 React와 TypeScript를 활용한 금융 서비스 개발에 주력하고 있으며, 향후에도 이 분야에서의 성장을 목표로 하고 있습니다. 그는 특히 사용자 경험(UX) 중심의 개발을 통해 금융 서비스의 가치를 높이는 데 관심이 많습니다. 장기적으로는 프론트엔드 기술 리더로 성장하여 팀의 기술적 방향성을 제시하고, 혁신적인 사용자 경험을 제공하는 프로젝트를 이끄는 것을 목표로 하고 있습니다. 이러한 커리어 비전은 그가 프론트엔드 개발 분야에서 지속적으로 성장할 수 있는 기반을 마련해 줍니다."
+      },
+      {
+        "field": "vision",
+        "summary": "박리액트는 협력적 업무 스타일을 바탕으로 팀 내에서 긍정적인 기여를 하고 있습니다. 그는 팀 내 갈등 상황에서도 동료와 협력하여 문제를 해결한 경험이 있으며, 이러한 협업 성향은 팀의 목표 달성에 중요한 역할을 합니다. 또한, 그는 코드 리뷰와 린터 도구 활용을 통해 팀의 코드 품질을 높이고, 사용자 경험을 최우선으로 고려한 의사결정으로 프로젝트의 성공에 기여했습니다. 이러한 협업과 기여 방식은 그가 조직의 비전과 전략을 이해하고 공감하며, 팀 내에서 긍정적인 영향을 미칠 수 있음을 보여줍니다."
+      },
+      {
+        "field": "culture",
+        "summary": "박리액트는 협력적이고 팀워크를 중시하는 업무 스타일을 가지고 있습니다. 그는 협력과 소통이 중요한 팀 환경, 특히 애자일 환경이나 프로젝트 중심 팀에서 잘 적응할 수 있는 성향을 보입니다. 문제 해결과 스트레스 대응 방식에 대한 구체적인 정보는 부족하지만, 협력적 성향을 바탕으로 팀 내에서 긍정적인 영향을 미칠 수 있습니다. 그의 커뮤니케이션 스타일은 구체적으로 평가되지 않았지만, 협력적 성향을 통해 팀 내에서 원활한 소통을 이끌어낼 수 있을 것으로 기대됩니다. 이러한 성향은 그가 다양한 조직 문화에 잘 적응할 수 있는 가능성을 보여줍니다."
+      }
+    ],
+    "job_summaries": [
+      {
+        "field": "roles",
+        "summary": "핀테크 플랫폼의 핵심 프론트엔드 개발자로서 React와 TypeScript를 기반으로 대규모 트래픽을 처리하는 금융 웹 및 앱 서비스를 구축합니다. 복잡한 금융 로직을 사용자 친화적인 UI/UX로 풀어내고, 렌더링 성능을 극한으로 최적화하여 최상의 사용자 경험을 제공하는 것을 주된 역할로 합니다."
+      },
+      {
+        "field": "skills",
+        "summary": "React, Redux, TypeScript 생태계에 대한 깊은 이해와 Chart.js 등을 이용한 데이터 시각화 역량이 필수적입니다. 코드 리뷰와 린터(Linter) 도입 등 코드 품질 향상을 위한 엔지니어링 프랙티스를 준수하며, 웹 성능 최적화와 모던 웹 아키텍처 설계 능력을 갖춘 인재를 찾습니다."
+      },
+      {
+        "field": "growth",
+        "summary": "개인과 조직이 함께 성장하는 구조를 지향합니다. 사내 기술 스터디, 외부 컨퍼런스 및 교육 지원을 통해 최신 프론트엔드 트렌드를 지속적으로 학습할 수 있으며, React 고급 패턴 및 대규모 아키텍처 설계 역량을 확장할 수 있는 기회를 적극적으로 제공합니다."
+      },
+      {
+        "field": "career",
+        "summary": "단순 기능 구현을 넘어 서비스의 기술적 방향성을 제시하는 프론트엔드 기술 리더(Tech Lead)로의 성장을 전폭 지원합니다. 주도적으로 프로젝트를 리딩하는 경험을 쌓으며, 장기적으로는 엔지니어링 조직의 기술 문화를 이끄는 핵심 리더로 발돋움할 수 있는 커리어 패스가 열려 있습니다."
+      },
+      {
+        "field": "vision",
+        "summary": "기술적 탁월함과 사용자 중심의 사고를 통해 금융 서비스의 혁신을 이끈다는 비전을 공유합니다. 팀원 간의 깊은 신뢰와 코드 품질에 대한 집요함을 바탕으로, 사용자가 신뢰할 수 있는 안정적이고 혁신적인 서비스를 함께 만들어갈 동료를 기다립니다."
+      },
+      {
+        "field": "culture",
+        "summary": "수평적이고 자율적인 애자일(Agile) 문화를 기반으로 합니다. 기획, 디자인, 개발 등 직군 간 경계 없는 활발한 소통과 협업을 중요시하며, 실패를 두려워하지 않고 도전적인 목표를 향해 유연하게 움직이는 팀워크를 선호합니다."
+      }
+    ],
+    "field_similarity_scores": {
+      "roles": 0.92,
+      "skills": 0.89,
+      "growth": 0.87,
+      "career": 0.91,
+      "vision": 0.85,
+      "culture": 0.88
+    }
+  },
+  "response": {
+    "job_fit": {
+      "category": "직무 적합성",
+      "matching_evidence": "The talent's expertise in React and TypeScript aligns seamlessly with the job's requirements for frontend development in fintech, particularly in enhancing user experience and optimizing performance. However, there are potential gaps in handling large-scale traffic and modern web architecture, which are critical for the role. Addressing these areas through targeted assessments will ensure the candidate's full capability to meet job demands.",
+      "check_points": "1. Evaluate the candidate's experience with high-traffic applications. 2. Assess understanding of complex financial logic. 3. Verify familiarity with modern web architecture design.",
+      "suggested_questions": [
+        "Can you describe a project where you optimized performance for a high-traffic application?",
+        "How do you approach implementing complex financial logic in user interfaces?",
+        "What experience do you have with modern web architecture, and how have you applied it in past projects?",
+        "How do you ensure code quality and maintainability in a team setting?",
+        "Can you discuss your strategies for performance optimization in frontend applications?"
+      ]
+    },
+    "growth_potential": {
+      "category": "성장 가능성",
+      "matching_evidence": "The talent's commitment to continuous learning and growth in frontend technologies, particularly React, aligns well with the job's emphasis on collaborative skill enhancement. Their aspiration to become a frontend tech leader complements the role's focus on leadership development. However, gaps in large-scale architecture design experience and prior leadership roles may pose risks to immediate effectiveness, highlighting the need for targeted growth opportunities.",
+      "check_points": "1. Assess the talent's recent projects involving advanced React patterns. 2. Evaluate their strategies for learning new technologies and ensuring code quality. 3. Discuss their experiences in leading projects and influencing technical direction.",
+      "suggested_questions": [
+        "Can you describe a recent project where you applied advanced React patterns?",
+        "What strategies do you use to enhance user experience in your projects?",
+        "Can you provide an example of a time you contributed to a project that required innovative thinking in a financial context?",
+        "How do you envision your transition from a developer to a tech lead impacting your team?",
+        "What strategies do you use to build trust within a team, especially during challenging projects?"
+      ]
+    },
+    "culture_fit": {
+      "category": "문화 적합성",
+      "matching_evidence": "박리액트는 협력적이고 팀워크 중심의 업무 스타일을 지니고 있어, 수평적이고 자율적인 애자일 문화와 잘 어울립니다. 그는 팀 내에서 긍정적인 영향을 미칠 수 있는 성향을 가지고 있으며, 다양한 조직 문화에 적응할 가능성이 높습니다. 그러나 커뮤니케이션 스타일과 문제 해결 방식에 대한 정보가 부족해 실제 상황에서의 적응력에 대한 우려가 존재합니다.",
+      "check_points": "1. 박리액트의 팀워크 중심의 접근 방식이 실제 팀 환경에서 어떻게 발휘되는지 관찰 필요 2. 커뮤니케이션 스타일에 대한 명확한 사례 확인 3. 스트레스 상황에서의 문제 해결 능력 평가",
+      "suggested_questions": [
+        "Can you describe a time when you had to adapt to a new team culture?",
+        "How do you handle conflicts in a team setting?",
+        "What strategies do you use to ensure effective communication within a team?",
+        "How do you approach building relationships in a new team?",
+        "What role do you typically take on in team projects?"
+      ]
+    },
+    "metadata": {
+      "total_stage1_fields": 6,
+      "total_categories": 3
+    }
+  }
+}

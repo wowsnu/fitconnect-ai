@@ -6,7 +6,7 @@ Two-stage explanation generation:
 - Stage 2: UI-level aggregation (3 categories)
 """
 
-from typing import List, Literal
+from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
@@ -21,9 +21,7 @@ class FieldSummary(BaseModel):
     )
     summary: str = Field(
         ...,
-        min_length=500,
-        max_length=700,
-        description="Field summary text (500-700 characters)"
+        description="Field summary text (any length)"
     )
 
 
@@ -38,15 +36,11 @@ class Stage1FieldInput(BaseModel):
     )
     talent_field_summary: str = Field(
         ...,
-        min_length=500,
-        max_length=700,
-        description="Talent field summary (500-700 characters)"
+        description="Talent field summary (any length)"
     )
     job_field_summary: str = Field(
         ...,
-        min_length=500,
-        max_length=700,
-        description="Job field summary (500-700 characters)"
+        description="Job field summary (any length)"
     )
     field_similarity_score: float = Field(
         ...,
@@ -123,6 +117,22 @@ class Stage2CategoryResult(BaseModel):
 class MatchExplainRequest(BaseModel):
     """Request for generating match explanation"""
     
+    talent_id: Optional[int] = Field(
+        None,
+        description="Talent user ID (for caching)"
+    )
+    talent_user_id: Optional[int] = Field(
+        None,
+        description="Alias of talent_id (external naming)"
+    )
+    jd_id: Optional[int] = Field(
+        None,
+        description="Job description ID (for caching)"
+    )
+    job_posting_id: Optional[int] = Field(
+        None,
+        description="Alias of jd_id (external naming)"
+    )
     talent_summaries: List[FieldSummary] = Field(
         ...,
         min_items=6,

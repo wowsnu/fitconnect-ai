@@ -46,20 +46,20 @@ class Stage2CategoryResultSimple(BaseModel):
 class XAIGraphState(TypedDict):
     """State for XAI generation graph (summary-based only)"""
     
-    # Input
-    talent_summaries: Dict[str, str]  # {field: summary}
-    job_summaries: Dict[str, str]  # {field: summary}
-    similarity_scores: Dict[str, float]  # {field: score}
-    
-    # Stage 1 results (accumulated)
+    # Input (overwrite only, 단일 dict)
+    talent_summaries: Dict[str, str]  # {field: summary} (overwrite only)
+    job_summaries: Dict[str, str]  # {field: summary} (overwrite only)
+    similarity_scores: Dict[str, float]  # {field: score} (overwrite only)
+
+    # Stage 1 results (add 누적)
     stage1_results: Annotated[List[Stage1FieldResultSimple], add]
-    
-    # Stage 2 results
+
+    # Stage 2 results (overwrite only)
     job_fit_result: Stage2CategoryResultSimple
     growth_potential_result: Stage2CategoryResultSimple
     culture_fit_result: Stage2CategoryResultSimple
-    
-    # Final output
+
+    # Final output (overwrite only)
     final_explanation: Dict[str, Any]
 
 
@@ -88,32 +88,30 @@ def generate_stage1_field_result_node(state: XAIGraphState) -> XAIGraphState:
         
         # Build prompt (no RAG, no citations)
         prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are an expert HR analyst specializing in talent-job matching with explainable AI.
+            ("system", """당신은 인재-채용 매칭을 설명하는 HR 분석가입니다. 모든 출력은 한국어로 작성하세요.
 
-Analyze the given field and provide a comprehensive explanation based on the summaries and similarity score.
+**출력 필드**
+1) matching_reason: 해당 분야에서 왜 매치가 되는지 근거 중심으로 설명 (200-300자)
+2) risk_or_gap: 잠재 리스크/갭 또는 주의 사항 (200-300자)
+3) suggested_questions: 면접 시 검증용 질문 2-3개 (각각 한 줄)
 
-**Your Task:**
-1. **matching_reason**: Explain why the talent and job match in this field based on the summaries
-2. **risk_or_gap**: Identify potential risks, gaps, or areas of concern
-3. **suggested_questions**: Provide 2-3 validation questions for interviewers
-
-**Guidelines:**
-- Be specific and evidence-based using only the provided summaries
-- Compare talent and job summaries to identify alignment and gaps
-- Suggest actionable, insightful questions
-- Keep explanations concise but thorough (200-300 chars each)
+**가이드라인**
+- 제공된 요약과 유사도 점수만 사용해 근거 기반으로 작성
+- 재능/채용 요약을 비교해 정합성과 차이를 명확히 언급
+- 질문은 구체적이고 실행 가능하게 작성
+- 모든 문장과 질문은 자연스러운 한국어로 작성
 """),
             ("user", """
-Field: {field}
-Similarity Score: {similarity:.3f}
+필드: {field}
+유사도 점수: {similarity:.3f}
 
-Talent Summary:
+인재 요약:
 {talent_summary}
 
-Job Summary:
+채용 요약:
 {job_summary}
 
-Analyze this field and provide structured output.
+위 정보를 기반으로 구조화된 출력을 완성하세요. 모든 응답은 한국어로 작성합니다.
 """)
         ])
         
@@ -129,8 +127,8 @@ Analyze this field and provide structured output.
         stage1_results.append(result)
         print(f"  ✓ Generated {field}")
     
-    state["stage1_results"] = stage1_results
-    return state
+    # Return only the updated key to avoid concurrent writes on other channels
+    return {"stage1_results": stage1_results}
 
 
 def aggregate_job_fit_node(state: XAIGraphState) -> XAIGraphState:
@@ -148,8 +146,7 @@ def aggregate_job_fit_node(state: XAIGraphState) -> XAIGraphState:
         field_results=field_results
     )
     
-    state["job_fit_result"] = result
-    return state
+    return {"job_fit_result": result}
 
 
 def aggregate_growth_potential_node(state: XAIGraphState) -> XAIGraphState:
@@ -167,8 +164,7 @@ def aggregate_growth_potential_node(state: XAIGraphState) -> XAIGraphState:
         field_results=field_results
     )
     
-    state["growth_potential_result"] = result
-    return state
+    return {"growth_potential_result": result}
 
 
 def aggregate_culture_fit_node(state: XAIGraphState) -> XAIGraphState:
@@ -186,8 +182,7 @@ def aggregate_culture_fit_node(state: XAIGraphState) -> XAIGraphState:
         field_results=field_results
     )
     
-    state["culture_fit_result"] = result
-    return state
+    return {"culture_fit_result": result}
 
 
 def merge_all_categories_node(state: XAIGraphState) -> XAIGraphState:
@@ -205,8 +200,7 @@ def merge_all_categories_node(state: XAIGraphState) -> XAIGraphState:
         }
     }
     
-    state["final_explanation"] = final_explanation
-    return state
+    return {"final_explanation": final_explanation}
 
 
 # ==================== Helper: Stage 2 Aggregation ====================
@@ -235,28 +229,26 @@ def _aggregate_category(
     
     # Build prompt
     prompt = ChatPromptTemplate.from_messages([
-        ("system", """You are an expert HR analyst creating executive-level match explanations.
+        ("system", """당신은 임원용 매칭 설명을 작성하는 HR 분석가입니다. 모든 출력은 한국어로 작성하세요.
 
-Your task is to aggregate multiple field-level analyses into a single, coherent category-level explanation.
+**출력 필드**
+1) matching_evidence: 해당 카테고리의 핵심 근거를 스토리처럼 연결 (300-400자)
+2) check_points: 이 카테고리에서 반드시 검증해야 할 포인트
+3) suggested_questions: 필드별 질문 중 가장 가치 있는 질문 3-5개
 
-**Your Output:**
-1. **matching_evidence**: Synthesize evidence from all fields into a compelling narrative
-2. **check_points**: Highlight critical validation points for this category
-3. **suggested_questions**: Curate 3-5 best questions from field-level suggestions
-
-**Guidelines:**
-- Create a cohesive story, not just a summary
-- Prioritize actionable insights
-- Keep evidence clear and concise (300-400 chars)
-- Select diverse, high-value questions
+**가이드라인**
+- 단순 요약이 아니라 근거를 엮어 설득력 있게 작성
+- 실행 가능한 인사이트를 우선시
+- 질문은 중복 없이 다각도로 선택
+- 모든 문장은 자연스러운 한국어로 작성
 """),
         ("user", """
-Category: {category}
+카테고리: {category}
 
-Field-level Analysis Results:
+필드별 분석 결과:
 {field_context}
 
-Aggregate these field results into a category-level explanation.
+위 결과를 종합해 카테고리 수준 설명을 작성하세요. 모든 응답은 한국어로 작성합니다.
 """)
     ])
     

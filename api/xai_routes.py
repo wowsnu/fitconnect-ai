@@ -14,11 +14,7 @@ from ai.matching.xai_models import (
     MatchExplainRequest,
     Stage2CategoryResult
 )
-from ai.matching.xai_cache import (
-    compute_request_hash,
-    get_cached_response,
-    upsert_cached_response
-)
+from ai.matching.xai_cache import save_cache_to_backend
 from ai.matching.xai_graph import generate_match_explanation
 
 
@@ -228,28 +224,6 @@ async def explain_match(request: MatchExplainRequest) -> MatchExplainResponse:
         # Step 1: Validate request
         validate_request(request)
 
-        # Step 1.5: Cache lookup (if identifiers provided)
-        cache_talent_id = request.talent_user_id or request.talent_id
-        cache_jd_id = request.job_posting_id or request.jd_id
-        cache_enabled = cache_talent_id is not None and cache_jd_id is not None
-        cached_response = None
-        request_hash = None
-        if cache_enabled:
-            request_hash = compute_request_hash(request.dict())
-            cached_response = get_cached_response(
-                talent_id=cache_talent_id,
-                jd_id=cache_jd_id,
-                request_hash=request_hash
-            )
-            if cached_response:
-                logger.info(
-                    f"[XAI] Cache hit for talent_id={cache_talent_id}, jd_id={cache_jd_id}"
-                )
-                return MatchExplainResponse(**cached_response)
-            logger.info(
-                f"[XAI] Cache miss for talent_id={cache_talent_id}, jd_id={cache_jd_id}"
-            )
-        
         # Step 2: Load summaries
         talent_summaries = get_talent_summaries(request)
         job_summaries = get_job_summaries(request)
@@ -285,20 +259,20 @@ async def explain_match(request: MatchExplainRequest) -> MatchExplainResponse:
             f"culture_fit={bool(response.culture_fit)}"
         )
 
-        # Step 5.5: Save cache (best-effort)
-        try:
-            if cache_enabled and request_hash:
-                upsert_cached_response(
+        # Step 5.5: Save cache to backend (best-effort)
+        cache_talent_id = request.talent_user_id or request.talent_id
+        cache_jd_id = request.job_posting_id or request.jd_id
+        if cache_talent_id is not None and cache_jd_id is not None:
+            try:
+                await save_cache_to_backend(
                     talent_id=cache_talent_id,
                     jd_id=cache_jd_id,
-                    request_hash=request_hash,
-                    response=response.dict()
+                    request_json=request.dict(),
+                    response_json=response.dict(),
+                    lang="ko"
                 )
-                logger.info(
-                    f"[XAI] Cached response for talent_id={cache_talent_id}, jd_id={cache_jd_id}"
-                )
-        except Exception as cache_error:
-            logger.warning(f"[XAI] Failed to cache response: {cache_error}")
+            except Exception as cache_error:
+                logger.warning(f"[XAI] Failed to call backend cache API: {cache_error}")
 
         # Step 6: Save request/response to file (simple example)
         save_dir = "xai_logs"

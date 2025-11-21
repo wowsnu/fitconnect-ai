@@ -34,7 +34,8 @@ class Settings(BaseSettings):
     CHROMA_PERSIST_DIRECTORY: str = "./data/chroma"
     
     # XAI Cache
-    XAI_CACHE_PATH: str = "./data/xai_cache.db"
+    XAI_CACHE_PATH: str = "./data/xai_cache.db"  # legacy local cache (unused with backend API)
+    XAI_MODEL_VERSION: str = "v1"
 
     # File Upload
     MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB

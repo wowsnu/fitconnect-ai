@@ -12,9 +12,17 @@ from langchain_core.prompts import ChatPromptTemplate
 from ai.interview.company.models import (
     CompanyGeneralAnalysis,
     TechnicalRequirements,
-    TeamCultureProfile
+    TeamCultureProfile,
+    TeamReviewQuestions
 )
 from config.settings import get_settings
+
+
+def _escape_curly(text: str) -> str:
+    """LangChain 프롬프트에서 중괄호 이스케이프"""
+    if not text:
+        return ""
+    return text.replace("{", "{{").replace("}", "}}")
 
 
 def analyze_team_review_technical(
@@ -190,3 +198,132 @@ def analyze_general_text_only(
     }]
 
     return analyze_company_general_interview(answers)
+
+
+def generate_team_review_questions(
+    general_analysis: CompanyGeneralAnalysis,
+    company_info: dict = None,
+    existing_jd: dict = None
+) -> TeamReviewQuestions:
+    """
+    팀원 리뷰용 직무적합성/문화적합성 질문 생성
+
+    General 분석 결과, 기업 프로필, 기존 JD를 기반으로
+    직무적합성 질문 2개, 문화적합성 질문 2개를 생성
+
+    Args:
+        general_analysis: General 면접 분석 결과
+        company_info: 기업 프로필 (culture, vision_mission, business_domains 등)
+        existing_jd: 기존 Job Description dict (responsibilities, requirements_must 등)
+
+    Returns:
+        TeamReviewQuestions (job_fit_questions 2개, culture_fit_questions 2개)
+    """
+    print("[TeamReview] Generating team review questions...")
+
+    # 1. General 분석 결과 요약
+    general_summary = f"""
+[General 면접 분석 결과]
+- 핵심 가치: {', '.join(general_analysis.core_values)}
+- 이상적 인재: {', '.join(general_analysis.ideal_candidate_traits)}
+- 팀 문화: {general_analysis.team_culture}
+- 업무 방식: {general_analysis.work_style}
+- 채용 이유: {general_analysis.hiring_reason}
+"""
+
+    # 2. 기업 프로필 컨텍스트
+    company_context = ""
+    if company_info:
+        company_parts = []
+        about = company_info.get("about", {})
+        if about.get("culture"):
+            company_parts.append(f"- 조직 문화: {about['culture']}")
+        if about.get("vision_mission"):
+            company_parts.append(f"- 비전/미션: {about['vision_mission']}")
+        if about.get("business_domains"):
+            company_parts.append(f"- 사업 영역: {about['business_domains']}")
+
+        basic = company_info.get("basic", {})
+        if basic.get("name"):
+            company_parts.insert(0, f"- 회사명: {basic['name']}")
+        if basic.get("industry"):
+            company_parts.append(f"- 산업: {basic['industry']}")
+
+        if company_parts:
+            company_context = "\n[기업 프로필]\n" + "\n".join(company_parts) + "\n"
+
+    # 3. 기존 JD 컨텍스트
+    jd_context = ""
+    if existing_jd:
+        jd_parts = []
+        if existing_jd.get("title"):
+            jd_parts.append(f"- 포지션: {existing_jd['title']}")
+        if existing_jd.get("position"):
+            jd_parts.append(f"- 직무: {existing_jd['position']}")
+        if existing_jd.get("department"):
+            jd_parts.append(f"- 부서: {existing_jd['department']}")
+        if existing_jd.get("responsibilities"):
+            jd_parts.append(f"- 주요 업무:\n{existing_jd['responsibilities']}")
+        if existing_jd.get("requirements_must"):
+            jd_parts.append(f"- 필수 요건:\n{existing_jd['requirements_must']}")
+        if existing_jd.get("requirements_nice"):
+            jd_parts.append(f"- 우대 요건:\n{existing_jd['requirements_nice']}")
+
+        if jd_parts:
+            jd_context = "\n[기존 Job Description]\n" + "\n".join(jd_parts) + "\n"
+
+    # 이스케이프 처리
+    general_summary_safe = _escape_curly(general_summary)
+    company_context_safe = _escape_curly(company_context)
+    jd_context_safe = _escape_curly(jd_context)
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", """당신은 HR 채용 담당자입니다. 팀원들에게 직무적합성과 문화적합성에 대한 의견을 수집하기 위한 질문을 생성합니다.
+
+**목표:**
+General 면접 분석 결과, 기업 프로필, 기존 JD를 참고하여 팀원들이 각자의 관점에서 구체적으로 답변할 수 있는 질문을 생성합니다.
+
+**직무적합성 질문 (2개) - job_fit_questions:**
+- 해당 포지션에서 필요한 역량, 경험, 기술 스택에 대해 팀원 관점에서 구체적으로 물어보는 질문
+- 실제 업무에서 어떤 역할을 기대하는지, 어떤 도전 과제가 있는지 파악하는 질문
+- 기존 JD가 있다면 그 내용을 구체화하거나 보완할 수 있는 질문
+
+**문화적합성 질문 (2개) - culture_fit_questions:**
+- 팀의 협업 방식, 의사소통 스타일, 업무 환경에 대해 팀원 관점에서 물어보는 질문
+- 어떤 성향의 사람이 팀에 잘 맞는지, 팀 문화의 특징을 파악하는 질문
+- General 분석에서 나온 팀 문화를 더 구체화할 수 있는 질문
+
+**질문 작성 원칙:**
+- 모든 질문은 한글로 작성
+- 열린 질문으로 작성 (예/아니오로 답할 수 없는 질문)
+- 팀원 개인의 경험과 관점을 물어보는 형태
+- 구체적이고 실무 중심의 질문
+- 각 질문은 100자 이내로 간결하게 작성
+- 질문마다 목적(purpose)을 명확히 기술
+
+**질문 예시:**
+- 직무적합성: "이 포지션에서 가장 중요하게 생각하는 기술 역량은 무엇이며, 어느 정도 수준을 기대하시나요?"
+- 직무적합성: "신규 입사자가 처음 3개월간 수행하게 될 주요 업무는 무엇인가요?"
+- 문화적합성: "팀에서 업무 진행 시 주로 어떤 방식으로 소통하고 협업하나요?"
+- 문화적합성: "팀에 새로 합류하는 분에게 가장 필요한 성향이나 태도는 무엇이라고 생각하시나요?"
+"""),
+        ("user", f"""{general_summary_safe}
+{company_context_safe}{jd_context_safe}
+위 정보를 바탕으로 팀원 리뷰용 질문을 생성해주세요.
+- 직무적합성 질문 2개
+- 문화적합성 질문 2개
+""")
+    ])
+
+    settings = get_settings()
+    llm = ChatOpenAI(
+        model="gpt-4.1-mini",
+        temperature=0.5,
+        api_key=settings.OPENAI_API_KEY
+    ).with_structured_output(TeamReviewQuestions)
+
+    result = (prompt | llm).invoke({})
+
+    print(f"[TeamReview] Generated {len(result.job_fit_questions)} job fit questions, {len(result.culture_fit_questions)} culture fit questions")
+
+    return result

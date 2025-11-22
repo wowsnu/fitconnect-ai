@@ -82,6 +82,9 @@ class CompanyInterviewSession:
         # 생성된 JD 데이터 (캐싱용)
         self.generated_jd: Optional[dict] = None
 
+        # 기존 JD 데이터 (팀원 리뷰용 - dict 형태)
+        self.existing_jd_data: Optional[dict] = None
+
         # 타임스탬프
         self.created_at = datetime.now()
         self.updated_at = datetime.now()
@@ -177,6 +180,7 @@ class StartTeamReviewRequest(BaseModel):
     """팀원 리뷰 세션 시작 요청"""
     access_token: str
     company_name: Optional[str] = None  # 선택: 없으면 백엔드에서 자동 로드
+    job_posting_id: Optional[int] = None  # 선택: 기존 JD가 있으면 해당 ID
 
 
 class TeamReviewGeneralRequest(BaseModel):
@@ -1088,18 +1092,19 @@ async def start_team_review_session(request: StartTeamReviewRequest):
     팀원 리뷰 세션 시작
 
     Args:
-        request: access_token, company_name (optional)
+        request: access_token, company_name (optional), job_posting_id (optional)
 
     Returns:
         session_id와 안내 메시지
     """
+    from ai.interview.client import get_backend_client
+    backend_client = get_backend_client()
+
     # 회사명 가져오기
     company_name = request.company_name
+    company_profile = None
     if not company_name:
         try:
-            from ai.interview.client import get_backend_client
-
-            backend_client = get_backend_client()
             company_profile = await backend_client.get_company_profile(
                 access_token=request.access_token
             )
@@ -1119,20 +1124,36 @@ async def start_team_review_session(request: StartTeamReviewRequest):
     company_sessions[session_id] = session
 
     # 기업 정보 로드 (나중에 JD/카드 생성 시 사용)
-    try:
-        from ai.interview.client import get_backend_client
-        backend_client = get_backend_client()
-        company_profile = await backend_client.get_company_profile(
-            access_token=request.access_token
-        )
+    if not company_profile:
+        try:
+            company_profile = await backend_client.get_company_profile(
+                access_token=request.access_token
+            )
+        except Exception as e:
+            print(f"[WARNING] Failed to load company profile: {str(e)}")
+
+    if company_profile:
         session.company_info = company_profile
         print(f"[INFO] Loaded company profile for team review session")
-    except Exception as e:
-        print(f"[WARNING] Failed to load company profile: {str(e)}")
+
+    # 기존 JD 로드 (job_posting_id가 있으면)
+    existing_jd_data = None
+    if request.job_posting_id:
+        try:
+            existing_jd_data = await backend_client.get_job_posting(
+                job_posting_id=request.job_posting_id,
+                access_token=request.access_token
+            )
+            session.existing_jd_data = existing_jd_data
+            print(f"[INFO] Loaded existing JD for job_posting_id={request.job_posting_id}")
+        except Exception as e:
+            print(f"[WARNING] Failed to load job posting: {str(e)}")
 
     return {
         "session_id": session_id,
         "company_name": company_name,
+        "job_posting_id": request.job_posting_id,
+        "has_existing_jd": existing_jd_data is not None,
         "message": "팀원 리뷰 세션이 시작되었습니다. 먼저 구조화 질문에 답변해주세요.",
         "next_step": "POST /team-review/general"
     }
@@ -1147,7 +1168,7 @@ async def submit_team_review_general(request: TeamReviewGeneralRequest):
         request: session_id, general_answer
 
     Returns:
-        CompanyGeneralAnalysis
+        CompanyGeneralAnalysis + 직무적합성/문화적합성 질문 (각 2개씩)
     """
     # 세션 확인
     if request.session_id not in company_sessions:
@@ -1164,14 +1185,37 @@ async def submit_team_review_general(request: TeamReviewGeneralRequest):
         )
 
     # 구조화 질문 분석
-    from ai.interview.company.team_review_analyzer import analyze_general_text_only
+    from ai.interview.company.team_review_analyzer import (
+        analyze_general_text_only,
+        generate_team_review_questions
+    )
 
     session.general_analysis = analyze_general_text_only(request.general_answer)
+
+    # 직무적합성/문화적합성 질문 생성
+    team_review_questions = generate_team_review_questions(
+        general_analysis=session.general_analysis,
+        company_info=session.company_info,
+        existing_jd=session.existing_jd_data
+    )
+
+    # 질문을 응답 형식으로 변환
+    next_questions = {
+        "job_fit_questions": [
+            {"question": q.question, "purpose": q.purpose}
+            for q in team_review_questions.job_fit_questions
+        ],
+        "culture_fit_questions": [
+            {"question": q.question, "purpose": q.purpose}
+            for q in team_review_questions.culture_fit_questions
+        ]
+    }
 
     return {
         "success": True,
         "session_id": request.session_id,
         "general_analysis": session.general_analysis,
+        "next_questions": next_questions,
         "message": "구조화 질문 분석이 완료되었습니다. 다음으로 팀원 리뷰를 제출해주세요.",
         "next_step": "POST /team-review/members"
     }

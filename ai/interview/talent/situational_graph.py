@@ -118,7 +118,7 @@ def generate_situational_deep_dive_question_node(state: TalentSituationalQuestio
     state["generated_question"] = result.content
     state["attempts"] += 1
 
-    print(f"[Generator] Generated question: {result.content[:50]}...")
+    print(f"[Generator] Generated question: {result.content}")
 
     return state
 

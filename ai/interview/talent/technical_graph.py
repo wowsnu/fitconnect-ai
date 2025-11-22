@@ -231,7 +231,7 @@ why: "{state.get("generated_question", {}).get("why", "") if isinstance(state.ge
     state["generated_question"] = result
     state["attempts"] += 1
 
-    print(f"[Generator] Generated question: {result.question[:50]}...")
+    print(f"[Generator] Generated question: {result.question}")
 
     return state
 

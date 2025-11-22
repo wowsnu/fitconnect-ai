@@ -60,7 +60,7 @@ class CompanyInterviewSession:
         session_id: str,
         company_name: str,
         existing_jd: Optional[str] = None,
-        use_langgraph_for_questions: Optional[bool] = None
+        use_langgraph_for_questions: Optional[bool] = None,
         is_team_review_mode: bool = False
     ):
         settings = get_settings()

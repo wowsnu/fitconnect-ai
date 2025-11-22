@@ -250,3 +250,40 @@ class RecommendedQuestions(BaseModel):
     reasoning: str = Field(
         description="이 질문들을 추천한 이유"
     )
+
+
+# ==================== Team Review Questions ====================
+
+class TeamReviewQuestion(BaseModel):
+    """팀원 리뷰용 질문"""
+
+    question: str = Field(
+        description="질문 내용",
+        min_length=10,
+        max_length=300
+    )
+
+    purpose: str = Field(
+        description="질문 목적 (무엇을 파악하기 위한 질문인지)"
+    )
+
+
+class TeamReviewQuestions(BaseModel):
+    """팀원 리뷰용 직무적합성/문화적합성 질문"""
+
+    job_fit_questions: List[TeamReviewQuestion] = Field(
+        description="직무적합성 질문 (2개)",
+        min_length=2,
+        max_length=2
+    )
+
+    culture_fit_questions: List[TeamReviewQuestion] = Field(
+        description="문화적합성 질문 (2개)",
+        min_length=2,
+        max_length=2
+    )
+
+    reasoning: str = Field(
+        description="질문 생성 근거",
+        default=""
+    )

@@ -1,0 +1,62 @@
+Collecting langgraph
+  Downloading langgraph-1.0.3-py3-none-any.whl.metadata (7.8 kB)
+Requirement already satisfied: langchain-core>=0.1 in ./venv/lib/python3.12/site-packages (from langgraph) (0.3.0)
+Collecting langgraph-checkpoint<4.0.0,>=2.1.0 (from langgraph)
+  Downloading langgraph_checkpoint-3.0.1-py3-none-any.whl.metadata (4.7 kB)
+Collecting langgraph-prebuilt<1.1.0,>=1.0.2 (from langgraph)
+  Downloading langgraph_prebuilt-1.0.4-py3-none-any.whl.metadata (5.2 kB)
+Collecting langgraph-sdk<0.3.0,>=0.2.2 (from langgraph)
+  Downloading langgraph_sdk-0.2.9-py3-none-any.whl.metadata (1.5 kB)
+Requirement already satisfied: pydantic>=2.7.4 in ./venv/lib/python3.12/site-packages (from langgraph) (2.12.4)
+Collecting xxhash>=3.5.0 (from langgraph)
+  Downloading xxhash-3.6.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (13 kB)
+Collecting ormsgpack>=1.12.0 (from langgraph-checkpoint<4.0.0,>=2.1.0->langgraph)
+  Downloading ormsgpack-1.12.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (1.2 kB)
+Collecting langchain-core>=0.1 (from langgraph)
+  Downloading langchain_core-1.0.4-py3-none-any.whl.metadata (3.5 kB)
+Requirement already satisfied: httpx>=0.25.2 in ./venv/lib/python3.12/site-packages (from langgraph-sdk<0.3.0,>=0.2.2->langgraph) (0.25.2)
+Requirement already satisfied: orjson>=3.10.1 in ./venv/lib/python3.12/site-packages (from langgraph-sdk<0.3.0,>=0.2.2->langgraph) (3.11.4)
+Requirement already satisfied: anyio in ./venv/lib/python3.12/site-packages (from httpx>=0.25.2->langgraph-sdk<0.3.0,>=0.2.2->langgraph) (3.7.1)
+Requirement already satisfied: certifi in ./venv/lib/python3.12/site-packages (from httpx>=0.25.2->langgraph-sdk<0.3.0,>=0.2.2->langgraph) (2025.10.5)
+Requirement already satisfied: httpcore==1.* in ./venv/lib/python3.12/site-packages (from httpx>=0.25.2->langgraph-sdk<0.3.0,>=0.2.2->langgraph) (1.0.9)
+Requirement already satisfied: idna in ./venv/lib/python3.12/site-packages (from httpx>=0.25.2->langgraph-sdk<0.3.0,>=0.2.2->langgraph) (3.11)
+Requirement already satisfied: sniffio in ./venv/lib/python3.12/site-packages (from httpx>=0.25.2->langgraph-sdk<0.3.0,>=0.2.2->langgraph) (1.3.1)
+Requirement already satisfied: h11>=0.16 in ./venv/lib/python3.12/site-packages (from httpcore==1.*->httpx>=0.25.2->langgraph-sdk<0.3.0,>=0.2.2->langgraph) (0.16.0)
+Requirement already satisfied: jsonpatch<2.0.0,>=1.33.0 in ./venv/lib/python3.12/site-packages (from langchain-core>=0.1->langgraph) (1.33)
+Collecting langsmith<1.0.0,>=0.3.45 (from langchain-core>=0.1->langgraph)
+  Downloading langsmith-0.4.42-py3-none-any.whl.metadata (14 kB)
+Requirement already satisfied: packaging<26.0.0,>=23.2.0 in ./venv/lib/python3.12/site-packages (from langchain-core>=0.1->langgraph) (24.2)
+Requirement already satisfied: pyyaml<7.0.0,>=5.3.0 in ./venv/lib/python3.12/site-packages (from langchain-core>=0.1->langgraph) (6.0.3)
+Requirement already satisfied: tenacity!=8.4.0,<10.0.0,>=8.1.0 in ./venv/lib/python3.12/site-packages (from langchain-core>=0.1->langgraph) (8.5.0)
+Requirement already satisfied: typing-extensions<5.0.0,>=4.7.0 in ./venv/lib/python3.12/site-packages (from langchain-core>=0.1->langgraph) (4.15.0)
+Requirement already satisfied: jsonpointer>=1.9 in ./venv/lib/python3.12/site-packages (from jsonpatch<2.0.0,>=1.33.0->langchain-core>=0.1->langgraph) (3.0.0)
+Requirement already satisfied: requests-toolbelt>=1.0.0 in ./venv/lib/python3.12/site-packages (from langsmith<1.0.0,>=0.3.45->langchain-core>=0.1->langgraph) (1.0.0)
+Requirement already satisfied: requests>=2.0.0 in ./venv/lib/python3.12/site-packages (from langsmith<1.0.0,>=0.3.45->langchain-core>=0.1->langgraph) (2.32.5)
+Collecting zstandard>=0.23.0 (from langsmith<1.0.0,>=0.3.45->langchain-core>=0.1->langgraph)
+  Downloading zstandard-0.25.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (3.3 kB)
+Requirement already satisfied: annotated-types>=0.6.0 in ./venv/lib/python3.12/site-packages (from pydantic>=2.7.4->langgraph) (0.7.0)
+Requirement already satisfied: pydantic-core==2.41.5 in ./venv/lib/python3.12/site-packages (from pydantic>=2.7.4->langgraph) (2.41.5)
+Requirement already satisfied: typing-inspection>=0.4.2 in ./venv/lib/python3.12/site-packages (from pydantic>=2.7.4->langgraph) (0.4.2)
+Requirement already satisfied: charset_normalizer<4,>=2 in ./venv/lib/python3.12/site-packages (from requests>=2.0.0->langsmith<1.0.0,>=0.3.45->langchain-core>=0.1->langgraph) (3.4.4)
+Requirement already satisfied: urllib3<3,>=1.21.1 in ./venv/lib/python3.12/site-packages (from requests>=2.0.0->langsmith<1.0.0,>=0.3.45->langchain-core>=0.1->langgraph) (2.3.0)
+Downloading langgraph-1.0.3-py3-none-any.whl (156 kB)
+Downloading langgraph_checkpoint-3.0.1-py3-none-any.whl (46 kB)
+Downloading langgraph_prebuilt-1.0.4-py3-none-any.whl (34 kB)
+Downloading langgraph_sdk-0.2.9-py3-none-any.whl (56 kB)
+Downloading langchain_core-1.0.4-py3-none-any.whl (471 kB)
+Downloading langsmith-0.4.42-py3-none-any.whl (401 kB)
+Downloading ormsgpack-1.12.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (208 kB)
+Downloading xxhash-3.6.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (193 kB)
+Downloading zstandard-0.25.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (5.5 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 5.5/5.5 MB 71.9 MB/s  0:00:00
+Installing collected packages: zstandard, xxhash, ormsgpack, langsmith, langgraph-sdk, langchain-core, langgraph-checkpoint, langgraph-prebuilt, langgraph
+  Attempting uninstall: langsmith
+    Found existing installation: langsmith 0.1.147
+    Uninstalling langsmith-0.1.147:
+      Successfully uninstalled langsmith-0.1.147
+  Attempting uninstall: langchain-core
+    Found existing installation: langchain-core 0.3.0
+    Uninstalling langchain-core-0.3.0:
+      Successfully uninstalled langchain-core-0.3.0
+
+Successfully installed langchain-core-1.0.4 langgraph-1.0.3 langgraph-checkpoint-3.0.1 langgraph-prebuilt-1.0.4 langgraph-sdk-0.2.9 langsmith-0.4.42 ormsgpack-1.12.0 xxhash-3.6.0 zstandard-0.25.0

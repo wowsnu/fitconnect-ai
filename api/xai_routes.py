@@ -8,6 +8,7 @@ using LangGraph pipeline (summary-based, no RAG).
 import logging
 from typing import Dict, Any, Tuple
 from fastapi import APIRouter, HTTPException, status
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel
 
 from ai.matching.xai_models import (
@@ -154,91 +155,84 @@ async def explain_match(request: MatchExplainRequest) -> MatchExplainResponse:
     import json
     import os
     from datetime import datetime
+
+    # Step 1: Validate request
     try:
-        # Step 1: Validate request
         validate_request(request)
-
-        cache_talent_id = request.talent_user_id
-        cache_jd_id = request.job_posting_id
-
-        # Step 2: Try backend cache (frontend도 GET 하지만 백업으로 확인)
-        if cache_talent_id is not None and cache_jd_id is not None:
-            cached = await fetch_cache_from_backend(cache_talent_id, cache_jd_id)
-            if cached:
-                return MatchExplainResponse(**cached)
-
-        # Step 3: Fetch from compare API
-        compare_data = await fetch_compare_data(
-            talent_user_id=cache_talent_id,
-            job_posting_id=cache_jd_id
-        )
-        talent_summaries, job_summaries, similarity_scores = map_compare_to_xai_inputs(compare_data)
-        
-        logger.info("[XAI] Starting XAI pipeline with fetched/normalized inputs")
-        
-        # Step 4: Execute LangGraph pipeline
-        final_explanation = generate_match_explanation(
-            talent_summaries=talent_summaries,
-            job_summaries=job_summaries,
-            similarity_scores=similarity_scores
-        )
-        
-        logger.info("[XAI] Pipeline execution completed successfully")
-        
-        # Step 5: Format response
-        response = MatchExplainResponse(
-            job_fit=final_explanation.get("직무 적합성", {}),
-            growth_potential=final_explanation.get("성장 가능성", {}),
-            culture_fit=final_explanation.get("문화 적합성", {}),
-            metadata=final_explanation.get("metadata", {})
-        )
-        
-        logger.info(
-            f"[XAI] Response prepared with categories: "
-            f"job_fit={bool(response.job_fit)}, "
-            f"growth_potential={bool(response.growth_potential)}, "
-            f"culture_fit={bool(response.culture_fit)}"
-        )
-
-        # Step 5.5: Save cache to backend (best-effort)
-        cache_talent_id = request.talent_user_id
-        cache_jd_id = request.job_posting_id
-        if cache_talent_id is not None and cache_jd_id is not None:
-            try:
-                await save_cache_to_backend(
-                    talent_id=cache_talent_id,
-                    jd_id=cache_jd_id,
-                    request_json=request.dict(),
-                    response_json=response.dict(),
-                    lang="ko"
-                )
-            except Exception as cache_error:
-                logger.warning(f"[XAI] Failed to call backend cache API: {cache_error}")
-
-        # Step 6: Save request/response to file (simple example)
-        save_dir = "xai_logs"
-        os.makedirs(save_dir, exist_ok=True)
-        now = datetime.now().strftime("%Y%m%d_%H%M%S")
-        with open(os.path.join(save_dir, f"xai_{now}.json"), "w", encoding="utf-8") as f:
-            json.dump({
-                "request": request.dict(),
-                "response": response.dict()
-            }, f, ensure_ascii=False, indent=2)
-        return response
-        
     except ValueError as e:
         logger.error(f"[XAI] Validation error: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid request: {str(e)}"
         )
+
+    cache_talent_id = request.talent_user_id
+    cache_jd_id = request.job_posting_id
+
+    # Step 2: Try backend cache (frontend도 GET 하지만 백업으로 확인)
+    if cache_talent_id is not None and cache_jd_id is not None:
+        cached = await fetch_cache_from_backend(cache_talent_id, cache_jd_id)
+        if cached:
+            return MatchExplainResponse(**cached)
+
+    # Step 3: Fetch from compare API
+    compare_data = await fetch_compare_data(
+        talent_user_id=cache_talent_id,
+        job_posting_id=cache_jd_id
+    )
+    talent_summaries, job_summaries, similarity_scores = map_compare_to_xai_inputs(compare_data)
     
-    except Exception as e:
-        logger.exception(f"[XAI] Pipeline execution failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate match explanation: {str(e)}"
-        )
+    logger.info("[XAI] Starting XAI pipeline with fetched/normalized inputs")
+    
+    # Step 4: Execute LangGraph pipeline
+    final_explanation = generate_match_explanation(
+        talent_summaries=talent_summaries,
+        job_summaries=job_summaries,
+        similarity_scores=similarity_scores
+    )
+    
+    logger.info("[XAI] Pipeline execution completed successfully")
+    
+    # Step 5: Format response
+    response = MatchExplainResponse(
+        job_fit=final_explanation.get("직무 적합성", {}),
+        growth_potential=final_explanation.get("성장 가능성", {}),
+        culture_fit=final_explanation.get("문화 적합성", {}),
+        metadata=final_explanation.get("metadata", {})
+    )
+    
+    logger.info(
+        f"[XAI] Response prepared with categories: "
+        f"job_fit={bool(response.job_fit)}, "
+        f"growth_potential={bool(response.growth_potential)}, "
+        f"culture_fit={bool(response.culture_fit)}"
+    )
+
+    # Step 5.5: Save cache to backend (best-effort)
+    cache_talent_id = request.talent_user_id
+    cache_jd_id = request.job_posting_id
+    if cache_talent_id is not None and cache_jd_id is not None:
+        try:
+            await save_cache_to_backend(
+                talent_id=cache_talent_id,
+                jd_id=cache_jd_id,
+                request_json=request.dict(),
+                response_json=response.dict(),
+                lang="ko"
+            )
+        except Exception as cache_error:
+            logger.warning(f"[XAI] Failed to call backend cache API: {cache_error}")
+
+    # Step 6: Save request/response to file (simple example)
+    save_dir = "xai_logs"
+    os.makedirs(save_dir, exist_ok=True)
+    now = datetime.now().strftime("%Y%m%d_%H%M%S")
+    with open(os.path.join(save_dir, f"xai_{now}.json"), "w", encoding="utf-8") as f:
+        json.dump({
+            "request": request.dict(),
+            "response": response.dict()
+        }, f, ensure_ascii=False, indent=2)
+    return response
 
 
 # ==================== Health Check ====================

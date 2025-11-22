@@ -10,6 +10,7 @@ import uvicorn
 from api.routes import api_router
 from api.interview_routes import interview_router
 from api.company_interview_routes import company_interview_router
+from api.xai_routes import xai_router
 from config import get_settings
 
 settings = get_settings()
@@ -35,6 +36,7 @@ app.add_middleware(
 app.include_router(api_router, prefix="/api", tags=["API"])
 app.include_router(interview_router, prefix="/api")
 app.include_router(company_interview_router, prefix="/api")
+app.include_router(xai_router, prefix="/api")
 
 @app.get("/")
 async def root():

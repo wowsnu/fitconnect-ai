@@ -14,6 +14,7 @@ Company Interview API Routes
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from pydantic import BaseModel
+from typing import Optional, Dict
 from typing import Optional, Dict, List
 import uuid
 from datetime import datetime
@@ -59,7 +60,7 @@ class CompanyInterviewSession:
         session_id: str,
         company_name: str,
         existing_jd: Optional[str] = None,
-        use_langgraph_for_questions: Optional[bool] = None,
+        use_langgraph_for_questions: Optional[bool] = None
         is_team_review_mode: bool = False
     ):
         settings = get_settings()
@@ -67,6 +68,9 @@ class CompanyInterviewSession:
         self.company_name = company_name
         self.existing_jd = existing_jd
         self.company_info: Optional[dict] = None  # 기업 정보 (Technical에서 로드)
+
+        # 면접 인스턴스
+        self.general_interview = CompanyGeneralInterview()
         self.is_team_review_mode = is_team_review_mode  # 팀원 리뷰 모드 여부
 
         # 면접 인스턴스 (팀원 리뷰 모드에서는 사용 안함)

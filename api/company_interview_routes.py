@@ -976,11 +976,22 @@ async def generate_card_and_vectors(request: GenerateCardRequest):
             "warning": "Matching vectors generation failed (OpenAI API error)"
         }
 
-    # 백엔드에 매칭 벡터 POST
+    # 백엔드에 매칭 벡터 POST (벡터 + 텍스트)
     try:
         print(f"[INFO] Posting matching vectors to backend for job_posting_id={job_posting_id}...")
+        # 백엔드 API 스펙에 맞게 필드명 변환 (지원자와 동일한 형식)
+        # roles_text -> text_roles, skills_text -> text_skills, etc.
+        vectors_and_texts = {
+            **matching_result["vectors"],  # vector_roles, vector_skills, etc.
+            "text_roles": matching_result["texts"]["roles_text"],
+            "text_skills": matching_result["texts"]["skills_text"],
+            "text_growth": matching_result["texts"]["growth_text"],
+            "text_career": matching_result["texts"]["career_text"],
+            "text_vision": matching_result["texts"]["vision_text"],
+            "text_culture": matching_result["texts"]["culture_text"]
+        }
         created_vectors = await backend_client.post_matching_vectors(
-            vectors_data=matching_result["vectors"],
+            vectors_data=vectors_and_texts,
             access_token=request.access_token,
             role="company",
             job_posting_id=job_posting_id  # company는 job_posting_id 필수

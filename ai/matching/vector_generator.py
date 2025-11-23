@@ -23,6 +23,10 @@ from ai.interview.talent.models import (
     CompetencyItem
 )
 from config.settings import get_settings
+from ai.matching.job_padding import (
+    generate_job_padding_text,
+    append_padding_to_texts
+)
 
 
 class ProfileBasedCard(BaseModel):
@@ -95,6 +99,120 @@ class TalentMatchingTexts(BaseModel):
         min_length=100,
         max_length=700
     )
+
+
+def _get_candidate_target_role(candidate_profile: CandidateProfile) -> str:
+    """패딩 생성을 위한 대표 직무명 선택."""
+    basic = candidate_profile.basic
+    if basic and basic.desired_role:
+        return basic.desired_role
+    if basic and basic.tagline:
+        return basic.tagline
+    if candidate_profile.experiences:
+        primary = candidate_profile.experiences[0]
+        return primary.title or primary.company_name or ""
+    return ""
+
+
+def _build_candidate_job_context(
+    candidate_profile: CandidateProfile,
+    general_analysis: GeneralInterviewAnalysis,
+    technical_analysis: TechnicalInterviewAnalysis,
+    situational_report: FinalPersonaReport
+) -> str:
+    """직무 패딩 생성을 위한 참고 정보 문자열."""
+    lines: list[str] = []
+
+    basic = candidate_profile.basic
+    if basic:
+        if basic.desired_industry:
+            lines.append(f"희망 산업: {basic.desired_industry}")
+        if basic.desired_company_size:
+            lines.append(f"희망 회사 규모: {basic.desired_company_size}")
+        if basic.desired_work_location:
+            lines.append(f"희망 근무지: {basic.desired_work_location}")
+
+    experiences = [
+        " / ".join(filter(None, [exp.company_name, exp.title])).strip()
+        for exp in candidate_profile.experiences or []
+    ]
+    if experiences:
+        lines.append(f"주요 경력: {', '.join(experiences[:5])}")
+
+    key_theme = ", ".join(general_analysis.key_themes or [])
+    if key_theme:
+        lines.append(f"구조화 키워드: {key_theme}")
+    interests = ", ".join(general_analysis.interests or [])
+    if interests:
+        lines.append(f"관심 분야: {interests}")
+    work_style = ", ".join(general_analysis.work_style_hints or [])
+    if work_style:
+        lines.append(f"업무 스타일: {work_style}")
+
+    eval_skills = ", ".join(technical_analysis.evaluated_skills or [])
+    if eval_skills:
+        lines.append(f"평가된 기술: {eval_skills}")
+    strong_areas = ", ".join(technical_analysis.strong_areas or [])
+    if strong_areas:
+        lines.append(f"강점 영역: {strong_areas}")
+    mentioned_tools = ", ".join(technical_analysis.mentioned_tools or [])
+    if mentioned_tools:
+        lines.append(f"사용 도구: {mentioned_tools}")
+    tech_depth = ", ".join(technical_analysis.technical_depth or [])
+    if tech_depth:
+        lines.append(f"심화 영역: {tech_depth}")
+
+    situational_bits = [
+        ("업무 스타일", situational_report.work_style),
+        ("문제 해결", situational_report.problem_solving),
+        ("학습 성향", situational_report.learning),
+        ("스트레스 대응", situational_report.stress_response),
+        ("커뮤니케이션", situational_report.communication)
+    ]
+    for label, value in situational_bits:
+        if value:
+            lines.append(f"{label}: {value}")
+
+    return "\n".join(lines)
+
+
+def _build_profile_only_job_context(
+    candidate_profile: CandidateProfile,
+    card: CandidateProfileCard
+) -> str:
+    """프로필 기반 매칭을 위한 직무 참고 정보."""
+    lines: list[str] = []
+
+    basic = candidate_profile.basic
+    if basic:
+        if basic.desired_role:
+            lines.append(f"희망 직무: {basic.desired_role}")
+        if basic.desired_industry:
+            lines.append(f"희망 산업: {basic.desired_industry}")
+        if basic.desired_work_location:
+            lines.append(f"희망 근무지: {basic.desired_work_location}")
+
+    experiences = [
+        " / ".join(filter(None, [exp.company_name, exp.title])).strip()
+        for exp in candidate_profile.experiences or []
+    ]
+    if experiences:
+        lines.append(f"주요 경력: {', '.join(experiences[:5])}")
+
+    if card.key_experiences:
+        lines.append(f"카드 주요 경험: {', '.join(card.key_experiences)}")
+    if card.strengths:
+        lines.append(f"카드 강점: {', '.join(card.strengths)}")
+    if card.technical_skills:
+        tech = ", ".join(f"{skill.name}({skill.level})" for skill in card.technical_skills)
+        lines.append(f"기술 역량: {tech}")
+    if card.core_competencies:
+        comp = ", ".join(f"{skill.name}({skill.level})" for skill in card.core_competencies)
+        lines.append(f"일반 역량: {comp}")
+    if card.job_fit:
+        lines.append(f"직무 요약: {card.job_fit}")
+
+    return "\n".join(lines)
 
 
 def generate_talent_matching_texts(
@@ -346,49 +464,62 @@ def generate_talent_matching_vectors(
         situational_report=situational_report
     )
 
+    texts_dict = texts.model_dump()
+
+    role_name = _get_candidate_target_role(candidate_profile)
+    context_info = _build_candidate_job_context(
+        candidate_profile=candidate_profile,
+        general_analysis=general_analysis,
+        technical_analysis=technical_analysis,
+        situational_report=situational_report
+    )
+    padding_text = generate_job_padding_text(
+        role_name=role_name,
+        perspective="talent",
+        context_info=context_info
+    )
+    padded_texts = append_padding_to_texts(
+        texts_dict,
+        padding_text,
+        include_keys=["roles_text", "skills_text"]
+    )
+
     # 2. 생성된 텍스트 출력
     print("\n" + "="*80)
     print("📝 생성된 매칭 텍스트")
     print("="*80)
     print("\n[1] 역할 적합도/역할 수행력")
     print("-"*80)
-    print(texts.roles_text)
+    print(padded_texts["roles_text"])
     print("\n[2] 역량 적합도")
     print("-"*80)
-    print(texts.skills_text)
+    print(padded_texts["skills_text"])
     print("\n[3] 성장 기회 제공/성장 가능성")
     print("-"*80)
-    print(texts.growth_text)
+    print(padded_texts["growth_text"])
     print("\n[4] 커리어 방향")
     print("-"*80)
-    print(texts.career_text)
+    print(padded_texts["career_text"])
     print("\n[5] 비전 신뢰도/협업 기여도")
     print("-"*80)
-    print(texts.vision_text)
+    print(padded_texts["vision_text"])
     print("\n[6] 조직/문화 적합도")
     print("-"*80)
-    print(texts.culture_text)
+    print(padded_texts["culture_text"])
     print("="*80 + "\n")
 
     # 3. 텍스트를 벡터로 임베딩
     vectors = embed_matching_texts(
-        roles_text=texts.roles_text,
-        skills_text=texts.skills_text,
-        growth_text=texts.growth_text,
-        career_text=texts.career_text,
-        vision_text=texts.vision_text,
-        culture_text=texts.culture_text
+        roles_text=padded_texts["roles_text"],
+        skills_text=padded_texts["skills_text"],
+        growth_text=padded_texts["growth_text"],
+        career_text=padded_texts["career_text"],
+        vision_text=padded_texts["vision_text"],
+        culture_text=padded_texts["culture_text"]
     )
 
     return {
-        "texts": {
-            "roles_text": texts.roles_text,
-            "skills_text": texts.skills_text,
-            "growth_text": texts.growth_text,
-            "career_text": texts.career_text,
-            "vision_text": texts.vision_text,
-            "culture_text": texts.culture_text
-        },
+        "texts": padded_texts,
         "vectors": vectors
     }
 
@@ -677,28 +808,36 @@ def generate_vectors_from_profile_only(
     ).with_structured_output(ProfileBasedMatchingTexts)
 
     texts = (prompt | llm).invoke({})
+    texts_dict = texts.model_dump()
+
+    role_name = _get_candidate_target_role(candidate_profile)
+    profile_context = _build_profile_only_job_context(candidate_profile, card)
+    padding_text = generate_job_padding_text(
+        role_name=role_name,
+        perspective="talent",
+        context_info=profile_context
+    )
+    padded_texts = append_padding_to_texts(
+        texts_dict,
+        padding_text,
+        include_keys=["roles_text", "skills_text"]
+    )
+
     print("[ProfileOnly] Matching texts generated")
 
     # 3. 텍스트를 벡터로 임베딩
     vectors = embed_matching_texts(
-        roles_text=texts.roles_text,
-        skills_text=texts.skills_text,
-        growth_text=texts.growth_text,
-        career_text=texts.career_text,
-        vision_text=texts.vision_text,
-        culture_text=texts.culture_text
+        roles_text=padded_texts["roles_text"],
+        skills_text=padded_texts["skills_text"],
+        growth_text=padded_texts["growth_text"],
+        career_text=padded_texts["career_text"],
+        vision_text=padded_texts["vision_text"],
+        culture_text=padded_texts["culture_text"]
     )
     print("[ProfileOnly] Vectors embedded")
 
     return {
         "card": card,
-        "texts": {
-            "roles_text": texts.roles_text,
-            "skills_text": texts.skills_text,
-            "growth_text": texts.growth_text,
-            "career_text": texts.career_text,
-            "vision_text": texts.vision_text,
-            "culture_text": texts.culture_text
-        },
+        "texts": padded_texts,
         "vectors": vectors
     }

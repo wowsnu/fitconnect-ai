@@ -23,6 +23,10 @@ from ai.interview.company.models import (
     TeamCultureProfile
 )
 from config.settings import get_settings
+from ai.matching.job_padding import (
+    generate_job_padding_text,
+    append_padding_to_texts
+)
 
 
 class CompanyMatchingTexts(BaseModel):
@@ -57,6 +61,76 @@ class CompanyMatchingTexts(BaseModel):
         description="조직/문화 텍스트",
         max_length=700
     )
+
+
+def _get_company_role_name(
+    technical_requirements: TechnicalRequirements,
+    job_posting_data: Dict[str, Any]
+) -> str:
+    """패딩 생성을 위한 대표 직무명."""
+    if technical_requirements.job_title:
+        return technical_requirements.job_title
+    title = job_posting_data.get("title")
+    return title or ""
+
+
+def _build_company_job_context(
+    general_analysis: CompanyGeneralAnalysis,
+    technical_requirements: TechnicalRequirements,
+    team_fit_analysis: TeamCultureProfile,
+    job_posting_data: Dict[str, Any]
+) -> str:
+    """직무 패딩 생성을 위한 회사 측 정보 요약."""
+    lines: list[str] = []
+
+    posting_title = job_posting_data.get("title")
+    if posting_title:
+        lines.append(f"채용공고 직무명: {posting_title}")
+    responsibilities = job_posting_data.get("responsibilities")
+    if responsibilities:
+        lines.append(f"공고 업무 요약: {responsibilities}")
+    requirements = job_posting_data.get("requirements_must")
+    if requirements:
+        lines.append(f"필수 요건: {requirements}")
+    nice = job_posting_data.get("requirements_nice")
+    if nice:
+        lines.append(f"우대 요건: {nice}")
+    competencies = job_posting_data.get("competencies") or []
+    if competencies:
+        lines.append(f"핵심 역량: {', '.join(competencies)}")
+
+    if general_analysis.core_values:
+        lines.append(f"핵심 가치: {', '.join(general_analysis.core_values)}")
+    if general_analysis.ideal_candidate_traits:
+        lines.append(f"선호 인재상: {', '.join(general_analysis.ideal_candidate_traits)}")
+    if general_analysis.team_culture:
+        lines.append(f"팀 문화: {general_analysis.team_culture}")
+    if general_analysis.work_style:
+        lines.append(f"업무 방식: {general_analysis.work_style}")
+    if general_analysis.hiring_reason:
+        lines.append(f"채용 이유: {general_analysis.hiring_reason}")
+
+    if technical_requirements.main_responsibilities:
+        lines.append(f"주요 업무: {', '.join(technical_requirements.main_responsibilities)}")
+    if technical_requirements.required_skills:
+        lines.append(f"필수 역량: {', '.join(technical_requirements.required_skills)}")
+    if technical_requirements.preferred_skills:
+        lines.append(f"우대 역량: {', '.join(technical_requirements.preferred_skills)}")
+    if technical_requirements.expected_challenges:
+        lines.append(f"예상 과제: {technical_requirements.expected_challenges}")
+
+    team_fields = [
+        ("팀 현황", team_fit_analysis.team_situation),
+        ("협업 스타일", team_fit_analysis.collaboration_style),
+        ("갈등 해결", team_fit_analysis.conflict_resolution),
+        ("업무 환경", team_fit_analysis.work_environment),
+        ("선호 업무 스타일", team_fit_analysis.preferred_work_style),
+    ]
+    for label, value in team_fields:
+        if value:
+            lines.append(f"{label}: {value}")
+
+    return "\n".join(lines)
 
 
 def generate_company_matching_texts(
@@ -269,26 +343,38 @@ def generate_company_matching_vectors(
         company_name=company_name,
         job_posting_data=job_posting_data
     )
+    texts_dict = texts.model_dump()
+
+    role_name = _get_company_role_name(technical_requirements, job_posting_data)
+    context_info = _build_company_job_context(
+        general_analysis=general_analysis,
+        technical_requirements=technical_requirements,
+        team_fit_analysis=team_fit_analysis,
+        job_posting_data=job_posting_data
+    )
+    padding_text = generate_job_padding_text(
+        role_name=role_name,
+        perspective="company",
+        context_info=context_info
+    )
+    padded_texts = append_padding_to_texts(
+        texts_dict,
+        padding_text,
+        include_keys=["roles_text", "skills_text"]
+    )
 
     # 2. 텍스트를 벡터로 임베딩
     vectors = embed_matching_texts(
-        roles_text=texts.roles_text,
-        skills_text=texts.skills_text,
-        growth_text=texts.growth_text,
-        career_text=texts.career_text,
-        vision_text=texts.vision_text,
-        culture_text=texts.culture_text
+        roles_text=padded_texts["roles_text"],
+        skills_text=padded_texts["skills_text"],
+        growth_text=padded_texts["growth_text"],
+        career_text=padded_texts["career_text"],
+        vision_text=padded_texts["vision_text"],
+        culture_text=padded_texts["culture_text"]
     )
 
     return {
-        "texts": {
-            "roles_text": texts.roles_text,
-            "skills_text": texts.skills_text,
-            "growth_text": texts.growth_text,
-            "career_text": texts.career_text,
-            "vision_text": texts.vision_text,
-            "culture_text": texts.culture_text
-        },
+        "texts": padded_texts,
         "vectors": vectors,
         "role": "company"
     }

@@ -1037,3 +1037,366 @@ async def generate_matching_vectors(request: GenerateMatchingVectorsRequest):
         vectors=result["vectors"],
         backend_response=backend_response
     )
+
+
+# ==================== Profile-Only Card & Vector Generation ====================
+
+class GenerateFromProfileRequest(BaseModel):
+    """프로필 기반 카드/벡터 생성 요청 (인터뷰 없이)"""
+    access_token: str  # JWT 토큰
+
+
+class GenerateFromProfileResponse(BaseModel):
+    """프로필 기반 카드/벡터 생성 응답"""
+    success: bool
+    card: CandidateProfileCard
+    texts: dict
+    vectors: dict
+    backend_card_response: Optional[dict] = None
+    backend_vectors_response: Optional[dict] = None
+
+
+@interview_router.post("/generate-from-profile", response_model=GenerateFromProfileResponse)
+async def generate_card_and_vectors_from_profile(request: GenerateFromProfileRequest):
+    """
+    프로필 정보만으로 인재 카드와 매칭 벡터 생성 (인터뷰 없이)
+
+    Mock 데이터 생성용 API. 인터뷰 과정 없이 프로필만으로 카드와 벡터를 생성합니다.
+
+    Args:
+        request: access_token
+
+    Returns:
+        생성된 카드, 매칭 텍스트, 벡터
+    """
+    from ai.matching.vector_generator import generate_vectors_from_profile_only
+
+    # 1. 백엔드에서 프로필 가져오기
+    backend_client = get_backend_client()
+    try:
+        profile = await backend_client.get_talent_profile(request.access_token)
+        print(f"[ProfileOnly] Loaded profile for {profile.basic.name if profile.basic else 'Unknown'}")
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to load talent profile: {str(e)}"
+        )
+
+    # 2. 프로필 기반 카드 + 벡터 생성
+    try:
+        result = generate_vectors_from_profile_only(profile)
+    except Exception as e:
+        logger.error(f"Failed to generate from profile: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate card and vectors: {str(e)}"
+        )
+
+    card = result["card"]
+    texts = result["texts"]
+    vectors = result["vectors"]
+
+    # 3. 백엔드에 카드 POST
+    backend_card_response = None
+    try:
+        backend_data = convert_card_to_backend_format(card, profile)
+        backend_card_response = await backend_client.post_talent_card(
+            backend_data, request.access_token
+        )
+        print(f"[ProfileOnly] Card posted to backend")
+    except Exception as e:
+        logger.warning(f"Failed to post card to backend: {str(e)}")
+
+    # 4. 백엔드에 매칭 벡터 POST
+    backend_vectors_response = None
+    try:
+        vectors_and_texts = {
+            **vectors,
+            "text_roles": texts["roles_text"],
+            "text_skills": texts["skills_text"],
+            "text_growth": texts["growth_text"],
+            "text_career": texts["career_text"],
+            "text_vision": texts["vision_text"],
+            "text_culture": texts["culture_text"]
+        }
+        backend_vectors_response = await backend_client.post_matching_vectors(
+            vectors_data=vectors_and_texts,
+            access_token=request.access_token,
+            role="talent"
+        )
+        print(f"[ProfileOnly] Vectors posted to backend")
+    except Exception as e:
+        logger.warning(f"Failed to post vectors to backend: {str(e)}")
+
+    return GenerateFromProfileResponse(
+        success=True,
+        card=card,
+        texts=texts,
+        vectors=vectors,
+        backend_card_response=backend_card_response,
+        backend_vectors_response=backend_vectors_response
+    )
+
+
+# ==================== Fast Text-based Interview (텍스트 기반 빠른 인터뷰) ====================
+
+class FastInterviewRequest(BaseModel):
+    """텍스트 기반 빠른 인터뷰 요청"""
+    access_token: str
+    general_answers: List[str]  # General 5개 답변
+    technical_answers: List[str]  # Technical 답변들 (4기술 × 2질문 = 8개)
+    situational_answers: List[str]  # Situational 6개 답변 (탐색3 + 심화2 + 검증1)
+
+
+class FastInterviewResponse(BaseModel):
+    """텍스트 기반 빠른 인터뷰 응답"""
+    success: bool
+    card: CandidateProfileCard
+    texts: dict
+    vectors: dict
+    backend_card_response: Optional[dict] = None
+    backend_vectors_response: Optional[dict] = None
+
+
+@interview_router.post("/fast-complete", response_model=FastInterviewResponse)
+async def fast_complete_interview(request: FastInterviewRequest):
+    """
+    텍스트 기반 빠른 인터뷰 완료 (음성 없이 전체 플로우 한번에)
+
+    General → Technical → Situational → 분석 → 카드/벡터 생성까지 한 번에 처리
+
+    Args:
+        request:
+            - access_token: JWT 토큰
+            - general_answers: General 질문 5개에 대한 답변
+            - technical_answers: Technical 답변들
+            - situational_answers: Situational 질문 6개에 대한 답변
+
+    Returns:
+        생성된 카드, 매칭 텍스트, 벡터, 백엔드 저장 결과
+    """
+    from ai.interview.talent.general import GENERAL_QUESTIONS, analyze_general_interview
+    from ai.interview.talent.situational import INITIAL_QUESTIONS, analyze_situational_answer
+    from ai.interview.talent.models import PersonaScores, FinalPersonaReport
+    from ai.matching.vector_generator import generate_talent_matching_vectors
+    from ai.interview.talent.technical import analyze_technical_interview
+
+    # 1. 프로필 가져오기
+    from ai.interview.talent.models import TalentBasic
+    backend_client = get_backend_client()
+    try:
+        profile = await backend_client.get_talent_profile(request.access_token)
+        # basic이 None이면 기본값 설정
+        if profile.basic is None:
+            profile.basic = TalentBasic(
+                name="지원자",
+                tagline="일반",
+                email="",
+                phone=""
+            )
+        print(f"[FastInterview] Loaded profile for {profile.basic.name}")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to load profile: {str(e)}")
+
+    # 2. General Interview 처리
+    if len(request.general_answers) < 5:
+        raise HTTPException(status_code=400, detail="General answers must have at least 5 items")
+
+    general_qa = [
+        {"question": GENERAL_QUESTIONS[i], "answer": request.general_answers[i]}
+        for i in range(min(len(GENERAL_QUESTIONS), len(request.general_answers)))
+    ]
+    general_analysis = analyze_general_interview(general_qa)
+    print(f"[FastInterview] General analysis completed")
+
+    # 3. Technical Interview 처리 (고정 질문 사용)
+    # 고정 직무 질문 (4영역 × 2질문 = 8개) - 범용 질문
+    FIXED_TECHNICAL_QUESTIONS = [
+        {"skill": "기획/구성", "question": "프로젝트나 업무를 기획하고 구성한 경험이 있나요? 어떤 과정을 거쳤는지 설명해주세요."},
+        {"skill": "기획/구성", "question": "기획 과정에서 어떤 트레이드오프를 고려했고, 최종 결정의 근거는 무엇이었나요?"},
+        {"skill": "실행/제작", "question": "실제로 프로젝트를 실행하거나 결과물을 만들어낸 경험을 들려주세요."},
+        {"skill": "실행/제작", "question": "실행 과정에서 어떤 도구나 방법을 사용했고, 왜 그것을 선택했나요?"},
+        {"skill": "문제해결", "question": "예상치 못한 문제가 발생했을 때 어떻게 해결했나요? 구체적인 사례를 들어주세요."},
+        {"skill": "문제해결", "question": "문제 해결 과정에서 겪은 어려움과 극복 방법을 설명해주세요."},
+        {"skill": "협업/소통", "question": "팀원이나 외부 관계자와 협업한 경험이 있나요? 어떻게 소통했는지 설명해주세요."},
+        {"skill": "협업/소통", "question": "협업 과정에서 의견 차이가 있었을 때 어떻게 조율했나요?"},
+    ]
+
+    # 고정 역량 목록
+    skills = ["기획/구성", "실행/제작", "문제해결", "협업/소통"]
+
+    # TechnicalInterview 결과 구조 직접 생성
+    technical_results = {
+        "skills_evaluated": skills,
+        "results": {skill: [] for skill in skills},
+        "total_questions": min(8, len(request.technical_answers))
+    }
+
+    for i, answer in enumerate(request.technical_answers[:8]):
+        q_data = FIXED_TECHNICAL_QUESTIONS[i]
+        technical_results["results"][q_data["skill"]].append({
+            "question": q_data["question"],
+            "answer": answer,
+            "skill": q_data["skill"]
+        })
+
+    technical_analysis = analyze_technical_interview(technical_results)
+    print(f"[FastInterview] Technical analysis completed for skills: {skills}")
+
+    # 4. Situational Interview 처리 (고정 질문 사용)
+    # 고정 상황 질문 6개 (탐색3 + 심화2 + 검증1)
+    FIXED_SITUATIONAL_QUESTIONS = [
+        # 탐색 3개 (INITIAL_QUESTIONS와 동일)
+        {"question": INITIAL_QUESTIONS[0]["question"], "targets": INITIAL_QUESTIONS[0]["targets"]},
+        {"question": INITIAL_QUESTIONS[1]["question"], "targets": INITIAL_QUESTIONS[1]["targets"]},
+        {"question": INITIAL_QUESTIONS[2]["question"], "targets": INITIAL_QUESTIONS[2]["targets"]},
+        # 심화 2개
+        {"question": "팀이나 리더의 결정에 동의하지 않았던 상황이 있나요? 어떻게 대응했는지 구체적으로 말씀해주세요.", "targets": ["work_style", "communication"]},
+        {"question": "복잡한 문제를 분석하고 해결했던 경험을 들려주세요. 어떤 방식으로 접근했나요?", "targets": ["problem_solving"]},
+        # 검증 1개
+        {"question": "중요한 업무 직전에 예상치 못한 어려움이 발생한 적이 있나요? 어떻게 대응했는지 행동을 중심으로 설명해주세요.", "targets": ["stress_response"]},
+    ]
+
+    # 페르소나 점수 수집
+    persona_scores = PersonaScores(
+        work_style={},
+        problem_solving={},
+        learning={},
+        stress_response={},
+        communication={}
+    )
+    qa_history = []
+
+    for i, answer in enumerate(request.situational_answers[:6]):
+        q_data = FIXED_SITUATIONAL_QUESTIONS[i]
+
+        # 답변 분석
+        analysis = analyze_situational_answer(
+            question=q_data["question"],
+            answer=answer,
+            target_dimensions=q_data["targets"]
+        )
+
+        # 점수 누적
+        for dimension in ["work_style", "problem_solving", "learning", "stress_response", "communication"]:
+            scores = getattr(analysis, dimension)
+            if scores is not None and scores:
+                current = getattr(persona_scores, dimension)
+                for trait, score in scores.items():
+                    current[trait] = current.get(trait, 0.0) + score
+
+        qa_history.append({
+            "question": q_data["question"],
+            "answer": answer,
+            "analysis": analysis.reasoning
+        })
+        print(f"[FastInterview] Situational Q{i+1} processed")
+
+    # 최종 페르소나 결정
+    final_persona = {}
+    for dimension in ["work_style", "problem_solving", "learning", "stress_response", "communication"]:
+        scores = getattr(persona_scores, dimension)
+        if scores:
+            final_persona[dimension] = max(scores, key=scores.get)
+        else:
+            final_persona[dimension] = "알 수 없음"
+
+    # FinalPersonaReport 생성 (간단 버전)
+    situational_report = FinalPersonaReport(
+        work_style=final_persona["work_style"],
+        problem_solving=final_persona["problem_solving"],
+        learning=final_persona["learning"],
+        stress_response=final_persona["stress_response"],
+        communication=final_persona["communication"],
+        work_style_reason="면접 답변 기반 분석",
+        problem_solving_reason="면접 답변 기반 분석",
+        learning_reason="면접 답변 기반 분석",
+        stress_response_reason="면접 답변 기반 분석",
+        communication_reason="면접 답변 기반 분석",
+        confidence=0.8,
+        summary=f"{final_persona['work_style']} 업무 스타일, {final_persona['problem_solving']} 문제 해결",
+        team_fit="협업 중심 환경에 적합"
+    )
+    print(f"[FastInterview] Situational analysis completed")
+
+    # 5. 카드 파트 추출
+    general_part = analyze_general_interview_for_card(
+        candidate_profile=profile,
+        general_analysis=general_analysis,
+        answers=general_qa
+    )
+
+    technical_part = analyze_technical_interview_for_card(
+        candidate_profile=profile,
+        technical_results=technical_results
+    )
+
+    situational_part = analyze_situational_interview_for_card(
+        candidate_profile=profile,
+        situational_report=situational_report,
+        qa_history=qa_history,
+        general_part=general_part,
+        technical_part=technical_part
+    )
+
+    # 6. 최종 카드 생성
+    final_card = generate_candidate_profile_card(
+        candidate_profile=profile,
+        general_part=general_part,
+        technical_part=technical_part,
+        situational_part=situational_part
+    )
+    print(f"[FastInterview] Card generated for {final_card.candidate_name}")
+
+    # 7. 매칭 벡터 생성
+    vector_result = generate_talent_matching_vectors(
+        candidate_profile=profile,
+        general_analysis=general_analysis,
+        technical_analysis=technical_analysis,
+        situational_report=situational_report
+    )
+
+    texts = vector_result["texts"]
+    vectors = vector_result["vectors"]
+    print(f"[FastInterview] Vectors generated")
+
+    # 8. 백엔드에 카드 POST
+    backend_card_response = None
+    try:
+        backend_data = convert_card_to_backend_format(final_card, profile)
+        backend_card_response = await backend_client.post_talent_card(
+            backend_data, request.access_token
+        )
+        print(f"[FastInterview] Card posted to backend")
+    except Exception as e:
+        logger.warning(f"Failed to post card to backend: {str(e)}")
+
+    # 9. 백엔드에 벡터 POST
+    backend_vectors_response = None
+    try:
+        vectors_and_texts = {
+            **vectors,
+            "text_roles": texts["roles_text"],
+            "text_skills": texts["skills_text"],
+            "text_growth": texts["growth_text"],
+            "text_career": texts["career_text"],
+            "text_vision": texts["vision_text"],
+            "text_culture": texts["culture_text"]
+        }
+        backend_vectors_response = await backend_client.post_matching_vectors(
+            vectors_data=vectors_and_texts,
+            access_token=request.access_token,
+            role="talent"
+        )
+        print(f"[FastInterview] Vectors posted to backend")
+    except Exception as e:
+        logger.warning(f"Failed to post vectors to backend: {str(e)}")
+
+    return FastInterviewResponse(
+        success=True,
+        card=final_card,
+        texts=texts,
+        vectors=vectors,
+        backend_card_response=backend_card_response,
+        backend_vectors_response=backend_vectors_response
+    )

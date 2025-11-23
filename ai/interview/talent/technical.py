@@ -1,7 +1,7 @@
 """
 Technical Interview (직무 적합성 면접)
 
-- 기본: 4개 기술 × 2질문 = 8개 질문 (설정 가능)
+- 기본: 4개 기술 × 2질문 = 8개 질문
 - 구조화 면접 분석 결과 활용
 - 개인화된 질문 생성
 - 이전 답변 기반으로 자연스럽게 깊이 파고들기
@@ -424,16 +424,16 @@ class TechnicalInterview:
         self,
         profile: CandidateProfile,
         general_analysis: GeneralInterviewAnalysis,
-        num_skills: int = 3,
-        questions_per_skill: int = 3,
+        num_skills: int = 4,
+        questions_per_skill: int = 2,
         use_langgraph_for_questions: Optional[bool] = None
     ):
         """
         Args:
             profile: 지원자 프로필
             general_analysis: 구조화 면접 분석 결과
-            num_skills: 평가할 기술 개수 (기본 3개)
-            questions_per_skill: 기술당 질문 수 (기본 3개)
+            num_skills: 평가할 기술 개수 (기본 4개)
+            questions_per_skill: 기술당 질문 수 (기본 2개)
         """
         settings = get_settings()
         self.profile = profile
